@@ -52,7 +52,7 @@ class BiasedNgramLm:
 
         self.lm = lm
         self.backoff_id = backoff_id
-        self.pending_state = 1
+        self.pending_state = -1
 
     def _get_next_state_and_cost_without_backoff(
         self, state: int, label: int
