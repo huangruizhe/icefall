@@ -52,9 +52,8 @@ class BiasedNgramLm:
 
         self.lm = lm
         self.backoff_id = backoff_id
-        self.pending_state = -1
 
-    def _get_next_state_and_cost_without_backoff(
+    def _get_next_state_and_bonus_without_backoff(
         self, state: int, label: int
     ) -> Tuple[int, float]:
         """TODO: Add doc."""
@@ -77,77 +76,60 @@ class BiasedNgramLm:
             else:
                 next_states = [arc.nextstate]
                 next_bonus = [arc.weight.value]
-                mid_ = mid - 1
-                while mid_ > 0:
-                    arc_iter.seek(mid_)
+
+                # Handle the non-deterministic case:
+                # There can be multiple out-arcs with
+                # the same label.
+                i = mid
+                while i > 0:
+                    i -= 1
+                    arc_iter.seek(i)
                     arc = arc_iter.value
-                    mid_ -= 1
                     if arc.ilabel == label:
                         next_states += [arc.nextstate]
                         next_bonus += [arc.weight.value]
                     else:
                         break
-                mid_ = mid + 1
-                while mid_ < num_arcs:
-                    arc_iter.seek(mid_)
+
+                i = mid
+                while i < num_arcs - 1:
+                    i += 1
+                    arc_iter.seek(i)
                     arc = arc_iter.value
-                    mid_ += 1
                     if arc.ilabel == label:
                         next_states += [arc.nextstate]
                         next_bonus += [arc.weight.value]
                     else:
                         break
+
                 return next_states, next_bonus
 
         return [], []
-
-    def _move_epsilon_if_any(self, state):
-        next_state, next_bonus = self._get_next_state_and_cost_without_backoff(
-            state=state,
-            label=0,
-        )
-        if next_state is None:
-            return state, 0
-        else:
-            next_next_state, next_next_bonus = self._move_epsilon_if_any(next_state)
-            return next_next_state, next_bonus + next_next_bonus
 
     def get_next_state_and_bonus(
         self,
         state: int,
         label: int,
-        move_pending_state: bool = True,
     ) -> Tuple[List[int], List[float]]:
-        if state == self.pending_state and move_pending_state:
-            # in this case, we need to forward the state twice
-            next_states, next_bonus = self.get_next_state_and_bonus(
-                state, label, move_pending_state=False
-            )
-            assert (
-                len(next_states) == 1 and next_states[0] == 0
-            ), f"state={state} label={label} next_state={next_states} is not the start state"
-            bonus = next_bonus[0]
-            next_states, next_bonus = self.get_next_state_and_bonus(0, label)
-            return next_states, [bonus + nb for nb in next_bonus]
 
-        next_states, next_bonus = self._get_next_state_and_cost_without_backoff(
+        next_states, next_bonus = self._get_next_state_and_bonus_without_backoff(
             state=state,
             label=label,
         )
         if len(next_states) > 0:
-            # next_next_state, next_next_bonus = self._move_epsilon_if_any(next_state)
-            # print(f"--- {state} {label} => {next_state}, {next_bonus} => {next_next_state}, {next_next_bonus}")
-            # return next_next_state, next_bonus + next_next_bonus
             return next_states, next_bonus
 
-        next_states, next_bonus = self._get_next_state_and_cost_without_backoff(
+        next_states, next_bonus = self._get_next_state_and_bonus_without_backoff(
             state=state,
             label=self.backoff_id,
         )
-        assert (
-            len(next_states) == 1 and next_states[0] == 0
-        ), f"state={state} label={label} next_state={next_states} is not the start state"  # back-off to the start state
-        return next_states, next_bonus
+        if len(next_states) > 0:
+            assert (
+                len(next_states) == 1 and next_states[0] == 0
+            ), f"state={state} label={label} next_state={next_states} is not the start state"  # back-off to the start state
+            return next_states, next_bonus
+        else:
+            return [], []
 
 
 class BiasedNgramLmStateBonus:
@@ -164,12 +146,15 @@ class BiasedNgramLmStateBonus:
 
     def forward_one_step(self, label: int) -> "BiasedNgramLmStateBonus":
         state_bonus = defaultdict(lambda: 0)
+        state_bonus[0] = self.state_bonus[
+            0
+        ]  # you can always stay at state 0 without any bonus or penalty
         for s, b in self.state_bonus.items():
             next_states, next_bonus = self.ngram_lm.get_next_state_and_bonus(
                 s,
                 label,
             )
-            # print(s, c, f"={label}=>", next_state, next_bonus)
+            # print(s, b, f"={label}=>", next_state, next_bonus)
             for nc, nb in zip(next_states, next_bonus):
                 state_bonus[nc] = max(state_bonus[nc], b + nb)
 

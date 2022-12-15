@@ -51,7 +51,11 @@ def get_args():
         "--biasing-list",
         type=str,
         help="""The file that contains a list of biasing phrases.
-        Each line of the file contains one phrase.
+        Each line of the file contains a pair of:
+          - the phrase
+          - the relative weight for biasing this phrase, compared
+            to others phrases
+        They are seperated by a space.
         """,
     )
 
@@ -64,10 +68,16 @@ def get_args():
     )
 
     parser.add_argument(
-        "--wildcard-id",
+        "--backoff-id",
         type=int,
         help="""
-        The id of the wildcard token. It can match with any other tokens.
+        The id of the backoff token. This token serves for the
+        "failure transition" in an WFST ( --
+        `Failure transitions for Joint n-gram Models and G2P Conversion`).
+        The idea is that the arc with the backoff token should be
+        traversed only in the event that no valid normal transition
+        exists leaving the current state.
+
         This id is usually taken from an un-used integer in token2id.
         """,
     )
@@ -92,7 +102,7 @@ def get_args():
     return parser.parse_args()
 
 
-def read_biasing_list(filename: str) -> List:
+def read_biasing_list(filename: str) -> Dict[str, float]:
     """.
 
     Args:
@@ -103,21 +113,24 @@ def read_biasing_list(filename: str) -> List:
     Returns:
       Return x.
     """
-    biasing_list = []
+    biasing_list = {}
 
     with open(filename, "r", encoding="utf-8") as fin:
         for line in fin:
             line = line.strip(" \t\r\n")
             if len(line) == 0:
                 continue
-            biasing_list.append(line)
+            line = line.rsplit(maxsplit=1)
+            phrase = line[0]
+            weight = float(line[-1])
+            biasing_list[phrase] = weight
     logging.info(f"len(biasing_list) = {len(biasing_list)}")
 
     return biasing_list
 
 
 def generate_lexicon_for_biasing_list(
-    model_file: str, biasing_list: List[str], nbest_size: int
+    model_file: str, biasing_list: Dict[str, float], nbest_size: int
 ) -> Tuple[Lexicon, Dict[str, int]]:
     """Generate a lexicon for the biasing list from a BPE model.
 
@@ -125,7 +138,7 @@ def generate_lexicon_for_biasing_list(
       model_file:
         Path to a sentencepiece model.
       biasing_list:
-        A list of strings representing biasing words.
+        A dictionary of {biasing word: weight}.
       nbest_size:
         The maximum number of alternative tokenizations to put in
         the lexicon for each word.
@@ -138,10 +151,12 @@ def generate_lexicon_for_biasing_list(
     sp = spm.SentencePieceProcessor()
     sp.load(str(model_file))
 
+    biasing_phrases = list(biasing_list.keys())
+
     # Convert word to word piece IDs instead of word piece strings
     # to avoid OOV tokens.
     words_pieces_ids: List[List[List[int]]] = [
-        sp.nbest_encode_as_ids(w, nbest_size=nbest_size) for w in biasing_list
+        sp.nbest_encode_as_ids(w, nbest_size=nbest_size) for w in biasing_phrases
     ]
 
     # Now convert word piece IDs back to word piece strings.
@@ -150,9 +165,9 @@ def generate_lexicon_for_biasing_list(
     ]
 
     lexicon = []
-    for word, alternatives in zip(biasing_list, words_pieces):
+    for phrase, alternatives in zip(biasing_phrases, words_pieces):
         for pieces in alternatives:
-            lexicon.append((word, pieces))
+            lexicon.append((phrase, pieces))
 
     token2id: Dict[str, int] = dict()
     for i in range(sp.vocab_size()):
@@ -163,20 +178,33 @@ def generate_lexicon_for_biasing_list(
 
 def generate_context_graph_simple(
     lexicon: Lexicon,
+    biasing_list: Dict[str, float],
     token2id: Dict[str, int],
-    wildcard_id: int,
+    backoff_id: int,
     bonus_per_token: float = 0.1,
 ) -> k2.Fsa:
     """Generate the context graph (in kaldifst format) given
     the lexicon of the biasing list.
 
+    This context graph is a WFST as in
+    `https://arxiv.org/abs/1808.02480`
+    or
+    `https://wenet.org.cn/wenet/context.html`.
+    It is simple, as it does not have the capability to detect
+    word boundaries. So, if a biasing word (e.g., 'us', the country)
+    happens to be the prefix of another word (e.g., 'useful'),
+    it will still be detected. This is not desired.
+    However, this context graph is easy to understand.
+
     Args:
       lexicon:
         The input lexicon for the biasing list.
+      biasing_list:
+        A dictionary of {biasing word: weight}.
       token2id:
         A dict mapping tokens to IDs.
-      wildcard_id:
-        The id of the wildcard token. It can match with any other tokens.
+      backoff_id:
+        The id of the backoff token. It serves for failure arcs.
       bonus_per_token:
         The bonus for each token during decoding, which will hopefully
         boost the token up to survive beam search.
@@ -193,7 +221,7 @@ def generate_context_graph_simple(
         -1
     )  # note: `k2_to_openfst` will multiply it with -1. So it will become +1 in the end.
 
-    arcs.append([start_state, start_state, wildcard_id, 0, 0.0])
+    arcs.append([start_state, start_state, backoff_id, 0, 0.0])
 
     for word, tokens in lexicon:
         assert len(tokens) > 0, f"{word} has no pronunciations"
@@ -207,7 +235,7 @@ def generate_context_graph_simple(
                 [
                     next_state,
                     start_state,
-                    wildcard_id,
+                    backoff_id,
                     0,
                     flip * -bonus_per_token * (i + 1),
                 ]
@@ -236,8 +264,9 @@ def generate_context_graph_simple(
 
 def generate_context_graph(
     lexicon: Lexicon,
+    biasing_list: Dict[str, float],
     token2id: Dict[str, int],
-    wildcard_id: int,
+    backoff_id: int,
     bonus_per_token: float = 0.1,
 ) -> k2.Fsa:
     """Generate the context graph (in kaldifst format) given
@@ -246,10 +275,12 @@ def generate_context_graph(
     Args:
       lexicon:
         The input lexicon for the biasing list.
+      biasing_list:
+        A dictionary of {biasing word: weight}.
       token2id:
         A dict mapping tokens to IDs.
-      wildcard_id:
-        The id of the wildcard token. It can match with any other tokens.
+      backoff_id:
+        The id of the backoff token. It serves for failure arcs.
       bonus_per_token:
         The bonus for each token during decoding, which will hopefully
         boost the token up to survive beam search.
@@ -263,11 +294,10 @@ def generate_context_graph(
     next_state = 2  # the next un-allocated state, will be incremented as we go.
     arcs = []
 
-    flip = (
-        -1
-    )  # note: `k2_to_openfst` will multiply it with -1. So it will become +1 in the end.
+    # note: `k2_to_openfst` will multiply it with -1. So it will become +1 in the end.
+    flip = -1
 
-    arcs.append([start_state, start_state, wildcard_id, 0, 0.0])
+    arcs.append([start_state, start_state, backoff_id, 0, 0.0])
 
     for word, tokens in lexicon:
         assert len(tokens) > 0, f"{word} has no pronunciations"
@@ -283,7 +313,7 @@ def generate_context_graph(
                 [
                     next_state,
                     start_state,
-                    wildcard_id,
+                    backoff_id,
                     0,
                     flip * -bonus_per_token * (i + 1),
                 ]
@@ -299,10 +329,103 @@ def generate_context_graph(
     for token, token_id in token2id.items():
         if token.startswith("▁"):
             arcs.append([pending_state, start_state, token_id, 0, 0.0])
-    arcs.append([pending_state, start_state, wildcard_id, 0, flip * -1.0])
+    arcs.append([pending_state, start_state, backoff_id, 0, flip * -1.0])
 
     final_state = next_state
     arcs.append([start_state, final_state, -1, -1, 0])
+    arcs.append([final_state])
+
+    arcs = sorted(arcs, key=lambda arc: arc[0])
+    arcs = [[str(i) for i in arc] for arc in arcs]
+    arcs = [" ".join(arc) for arc in arcs]
+    arcs = "\n".join(arcs)
+
+    fsa = k2.Fsa.from_str(arcs, acceptor=False)
+    fsa = k2.arc_sort(fsa)
+    return fsa
+
+
+def generate_context_graph_nfa(
+    lexicon: Lexicon,
+    biasing_list: Dict[str, float],
+    token2id: Dict[str, int],
+    backoff_id: int,
+    bonus_per_token: float = 0.1,
+) -> k2.Fsa:
+    """Generate the context graph (in kaldifst format) given
+    the lexicon of the biasing list.
+
+    This context graph is a WFST capable of detecting word boundaries.
+    It is epsilon-free and non-deterministic.
+
+    Args:
+      lexicon:
+        The input lexicon for the biasing list.
+      biasing_list:
+        A dictionary of {biasing word: weight}.
+      token2id:
+        A dict mapping tokens to IDs.
+      backoff_id:
+        The id of the backoff token. It serves for failure arcs.
+      bonus_per_token:
+        The bonus for each token during decoding, which will hopefully
+        boost the token up to survive beam search.
+
+    Returns:
+      Return an instance of `k2.Fsa` representing the context graph.
+    """
+
+    start_state = 0
+    # if the path go through this state, then a word boundary is detected
+    boundary_state = 1
+    # if the path go through this state, then it is not a word boundary
+    non_boundary_state = 2
+    next_state = 3  # the next un-allocated state, will be incremented as we go.
+    arcs = []
+
+    # note: `k2_to_openfst` will multiply it with -1. So it will become +1 in the end.
+    flip = -1
+
+    for token, token_id in token2id.items():
+        arcs.append([start_state, start_state, token_id, 0, 0.0])
+
+    for word, tokens in lexicon:
+        assert len(tokens) > 0, f"{word} has no pronunciations"
+        cur_state = start_state
+
+        tokens = [token2id[i] for i in tokens]
+
+        my_bonus_per_token = flip * bonus_per_token * biasing_list[word]
+
+        for i in range(len(tokens) - 1):
+            arcs.append([cur_state, next_state, tokens[i], 0, my_bonus_per_token])
+            arcs.append(
+                [next_state, start_state, backoff_id, 0, -my_bonus_per_token * (i + 1)]
+            )
+            if i == 0:
+                arcs.append(
+                    [boundary_state, next_state, tokens[i], 0, my_bonus_per_token]
+                )
+
+            cur_state = next_state
+            next_state += 1
+
+        # now for the last token of this word
+        i = len(tokens) - 1
+        arcs.append([cur_state, boundary_state, tokens[i], 0, my_bonus_per_token])
+        arcs.append(
+            [cur_state, non_boundary_state, tokens[i], 0, -my_bonus_per_token * i]
+        )
+
+    for token, token_id in token2id.items():
+        if token.startswith("▁"):
+            arcs.append([boundary_state, start_state, token_id, 0, 0.0])
+        else:
+            arcs.append([non_boundary_state, start_state, token_id, 0, 0.0])
+
+    final_state = next_state
+    arcs.append([start_state, final_state, -1, -1, 0])
+    arcs.append([boundary_state, final_state, -1, -1, 0])
     arcs.append([final_state])
 
     arcs = sorted(arcs, key=lambda arc: arc[0])
@@ -327,10 +450,11 @@ def main():
     )
 
     bonus_per_token = 0.1
-    context_graph = generate_context_graph(
+    context_graph = generate_context_graph_nfa(
         lexicon,
+        biasing_list,
         token2id,
-        args.wildcard_id,
+        args.backoff_id,
         bonus_per_token,
     )
     logging.info(
