@@ -99,6 +99,15 @@ def get_args():
         """,
     )
 
+    parser.add_argument(
+        "--nbest-size",
+        type=int,
+        default=1,
+        help="""
+        The maximum number of different tokenization for each lexicon entry.
+        """,
+    )
+
     return parser.parse_args()
 
 
@@ -435,6 +444,7 @@ def generate_context_graph_nfa(
 
     fsa = k2.Fsa.from_str(arcs, acceptor=False)
     fsa = k2.arc_sort(fsa)
+    # fsa = k2.determinize(fsa)  # No weight pushing is needed.
     return fsa
 
 
@@ -446,7 +456,7 @@ def main():
     lexicon, token2id = generate_lexicon_for_biasing_list(
         args.bpe_model_file,
         biasing_list,
-        nbest_size=1,
+        nbest_size=args.nbest_size,
     )
 
     bonus_per_token = 0.1
