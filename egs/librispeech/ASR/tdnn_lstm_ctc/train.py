@@ -112,6 +112,20 @@ def get_parser():
         help="The seed for random generators intended for reproducibility",
     )
 
+    parser.add_argument(
+        "--exp-dir",
+        type=str,
+        default="tdnn_lstm_ctc/exp",
+        help="",
+    )
+
+    parser.add_argument(
+        "--lang-dir",
+        type=str,
+        default="data/lang_phone",
+        help="",
+    )
+
     return parser
 
 
@@ -171,8 +185,8 @@ def get_params() -> AttributeDict:
     """
     params = AttributeDict(
         {
-            "exp_dir": Path("tdnn_lstm_ctc/exp"),
-            "lang_dir": Path("data/lang_phone"),
+            # "exp_dir": Path("tdnn_lstm_ctc/exp"),
+            # "lang_dir": Path("data/lang_phone"),
             "lr": 1e-4,
             "feature_dim": 80,
             "weight_decay": 5e-4,
@@ -630,6 +644,8 @@ def main():
     parser = get_parser()
     LibriSpeechAsrDataModule.add_arguments(parser)
     args = parser.parse_args()
+    args.exp_dir = Path(args.exp_dir)
+    args.lang_dir = Path(args.lang_dir)
 
     world_size = args.world_size
     assert world_size >= 1

@@ -119,15 +119,37 @@ def get_parser():
         which can be loaded by `icefall.checkpoint.load_checkpoint()`.
         """,
     )
+
+    parser.add_argument(
+        "--exp-dir",
+        type=str,
+        default="tdnn_lstm_ctc/exp",
+        help="",
+    )
+
+    parser.add_argument(
+        "--lang-dir",
+        type=str,
+        default="data/lang_phone",
+        help="",
+    )
+
+    parser.add_argument(
+        "--lm-dir",
+        type=str,
+        default="data/lm",
+        help="",
+    )
+
     return parser
 
 
 def get_params() -> AttributeDict:
     params = AttributeDict(
         {
-            "exp_dir": Path("tdnn_lstm_ctc/exp/"),
-            "lang_dir": Path("data/lang_phone"),
-            "lm_dir": Path("data/lm"),
+            # "exp_dir": Path("tdnn_lstm_ctc/exp/"),
+            # "lang_dir": Path("data/lang_phone"),
+            # "lm_dir": Path("data/lm"),
             "feature_dim": 80,
             "subsampling_factor": 3,
             "search_beam": 20,
@@ -384,6 +406,10 @@ def main():
 
     params = get_params()
     params.update(vars(args))
+
+    params.exp_dir = Path(params.exp_dir)
+    params.lang_dir = Path(params.lang_dir)
+    params.lm_dir = Path(params.lm_dir)
 
     setup_logger(f"{params.exp_dir}/log/log-decode")
     logging.info("Decoding started")
