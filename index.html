@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html class="writer-html5" lang="en" >
 <head>
-  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Icefall &mdash; icefall 0.1 documentation</title>
@@ -11,10 +11,9 @@
     <script src="_static/js/html5shiv.min.js"></script>
   <![endif]-->
   
-        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
         <script src="_static/jquery.js"></script>
-        <script src="_static/underscore.js"></script>
         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
         <script src="_static/doctools.js"></script>
         <script src="_static/sphinx_highlight.js"></script>
     <script src="_static/js/theme.js"></script>
@@ -28,11 +27,15 @@
     <nav data-toggle="wy-nav-shift" class="wy-nav-side">
       <div class="wy-side-scroll">
         <div class="wy-side-nav-search" >
-            <a href="#" class="icon icon-home"> icefall
+
+          
+          
+          <a href="#" class="icon icon-home">
+            icefall
           </a>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" />
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
   </form>
@@ -41,8 +44,13 @@
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="installation/index.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="faqs.html">Frequently Asked Questions (FAQs)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="model-export/index.html">Model export</a></li>
+</ul>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="recipes/index.html">Recipes</a></li>
+</ul>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="contributing/index.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="huggingface/index.html">Huggingface</a></li>
 </ul>
@@ -60,7 +68,7 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="#" class="icon icon-home"></a></li>
+      <li><a href="#" class="icon icon-home" aria-label="Home"></a></li>
       <li class="breadcrumb-item active">Icefall</li>
       <li class="wy-breadcrumbs-aside">
               <a href="https://github.com/k2-fsa/icefall/blob/master/docs/source/index.rst" class="fa fa-github"> Edit on GitHub</a>
@@ -89,6 +97,12 @@ speech recognition recipes using <a class="reference external" href="https://git
 <li class="toctree-l2"><a class="reference internal" href="installation/index.html#youtube-video">YouTube Video</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="faqs.html">Frequently Asked Questions (FAQs)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="faqs.html#oserror-libtorch-hip-so-cannot-open-shared-object-file-no-such-file-or-directory">OSError: libtorch_hip.so: cannot open shared object file: no such file or directory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="faqs.html#attributeerror-module-distutils-has-no-attribute-version">AttributeError: module ‘distutils’ has no attribute ‘version’</a></li>
+<li class="toctree-l2"><a class="reference internal" href="faqs.html#importerror-libpython3-10-so-1-0-cannot-open-shared-object-file-no-such-file-or-directory">ImportError: libpython3.10.so.1.0: cannot open shared object file: No such file or directory</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="model-export/index.html">Model export</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="model-export/export-model-state-dict.html">Export model.state_dict()</a></li>
 <li class="toctree-l2"><a class="reference internal" href="model-export/export-with-torch-jit-trace.html">Export model with torch.jit.trace()</a></li>
@@ -97,13 +111,29 @@ speech recognition recipes using <a class="reference external" href="https://git
 <li class="toctree-l2"><a class="reference internal" href="model-export/export-ncnn.html">Export to ncnn</a></li>
 </ul>
 </li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="recipes/index.html">Recipes</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="recipes/aishell/index.html">aishell</a></li>
-<li class="toctree-l2"><a class="reference internal" href="recipes/librispeech/index.html">LibriSpeech</a></li>
-<li class="toctree-l2"><a class="reference internal" href="recipes/timit/index.html">TIMIT</a></li>
-<li class="toctree-l2"><a class="reference internal" href="recipes/yesno/index.html">YesNo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="recipes/Non-streaming-ASR/index.html">Non Streaming ASR</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="recipes/Non-streaming-ASR/aishell/index.html">aishell</a></li>
+<li class="toctree-l3"><a class="reference internal" href="recipes/Non-streaming-ASR/librispeech/index.html">LibriSpeech</a></li>
+<li class="toctree-l3"><a class="reference internal" href="recipes/Non-streaming-ASR/timit/index.html">TIMIT</a></li>
+<li class="toctree-l3"><a class="reference internal" href="recipes/Non-streaming-ASR/yesno/index.html">YesNo</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="recipes/Streaming-ASR/index.html">Streaming ASR</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="recipes/Streaming-ASR/introduction.html">Introduction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="recipes/Streaming-ASR/librispeech/index.html">LibriSpeech</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="contributing/index.html">Contributing</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="contributing/doc.html">Contributing to Documentation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contributing/code-style.html">Follow the code style</a></li>
