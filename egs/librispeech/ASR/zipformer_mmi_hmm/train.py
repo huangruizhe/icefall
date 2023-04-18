@@ -1051,7 +1051,9 @@ def run(rank, world_size, args):
         # train_cuts += librispeech.train_other_500_cuts()
         train_cuts = librispeech.train_all_shuf_cuts()
     else:
-        train_cuts = librispeech.train_clean_100_cuts()
+        # train_cuts = librispeech.train_clean_100_cuts()
+        train_cuts = librispeech.train_clean_100_cuts_sample()
+        train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds
@@ -1081,7 +1083,7 @@ def run(rank, world_size, args):
     valid_cuts += librispeech.dev_other_cuts()
     valid_dl = librispeech.valid_dataloaders(valid_cuts)
 
-    if not params.print_diagnostics:
+    if False and not params.print_diagnostics:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,

@@ -130,6 +130,7 @@ class HMMTrainingGraphCompiler(object):
         '''
         This should produce the same topo as `k2.ctc_topo(max_token_id, modified=True)`
         '''
+        print("Using `ctc_topo_modified`")
         num_tokens = max_token
         # assert (
         #     sil_id <= max_token
@@ -237,13 +238,15 @@ class HMMTrainingGraphCompiler(object):
         #     self.sil_word_id = max(self.word_table.ids) + 1
 
         max_token_id = max(lexicon.tokens)
-        hmm_topo = HMMTrainingGraphCompiler.hmm_topo_one_state_simplified(
-            max_token_id + 1 if sil_word is not None else max_token_id, self.sil_token_id
-        )  # add one for the <sil> token
+        # hmm_topo = HMMTrainingGraphCompiler.hmm_topo_one_state_simplified(
+        #     max_token_id + 1 if sil_word is not None else max_token_id, self.sil_token_id
+        # )  # add one for the <sil> token
         # hmm_topo = k2.ctc_topo(max_token_id, modified=False)
-        # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified(
-        #     max_token_id, None
-        # )
+        # hmm_topo = k2.ctc_topo(max_token_id, modified=True)
+        hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified(
+            max_token_id, None
+        )
+        print(f"Topo size: {(hmm_topo.shape[0], hmm_topo.num_arcs)}")
 
         self.topo = hmm_topo.to(device)
         self.device = device

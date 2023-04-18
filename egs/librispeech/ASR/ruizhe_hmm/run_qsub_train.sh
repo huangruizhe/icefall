@@ -11,7 +11,7 @@
 # &!octopod*
 
 #### Activate dev environments and call programs
-mamba activate /home/rhuang/mambaforge/envs/efrat
+mamba activate /home/rhuang/mambaforge/envs/efrat2
 export PYTHONPATH=/export/fs04/a12/rhuang/k2/k2/python:$PYTHONPATH # for `import k2`
 export PYTHONPATH=/export/fs04/a12/rhuang/k2/build/temp.linux-x86_64-cpython-38/lib/:$PYTHONPATH # for `import _k2`
 # export PYTHONPATH=/export/fs04/a12/rhuang/icefall_align/:$PYTHONPATH
@@ -60,3 +60,31 @@ python tdnn_lstm_ctc/train.py \
     --num-epochs 30 \
     --valid-interval 100 \
     --exp-dir "tdnn_lstm_ctc/exp/exp_libri_100"
+
+# # zipformer_ctc on libri100
+./zipformer_ctc/train.py \
+  --world-size 4 \
+  --master-port 12345 \
+  --num-epochs 30 \
+  --start-epoch 1 \
+  --lang-dir data/lang_bpe_500 \
+  --exp-dir zipformer_ctc/exp/exp_libri_100  \
+  --max-duration 200 \
+  --full-libri false \
+  --use-fp16 true
+
+# zipformer_hmm_ml on libri100
+./zipformer_mmi_hmm/train.py \
+  --world-size 4 \
+  --master-port 12345 \
+  --num-epochs 30 \
+  --start-epoch 1 \
+  --lang-dir data/lang_bpe_500 \
+  --exp-dir zipformer_mmi_hmm/exp/exp_libri_100_ml  \
+  --max-duration 200 \
+  --full-libri false \
+  --use-fp16 true \
+  --warm-step 90000000000 \
+  --num-workers 6 \
+  --ctc-beam-size 15 \
+  --sil-modeling true
