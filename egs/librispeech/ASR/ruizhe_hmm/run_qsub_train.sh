@@ -2,10 +2,10 @@
 #$ -wd /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR
 #$ -V
 #$ -N train
-#$ -j y -o ruizhe/log/$JOB_NAME-$JOB_ID.out
+#$ -j y -o ruizhe_hmm/log/$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l ram_free=16G,mem_free=16G,gpu=4,hostname=!b*
+#$ -l ram_free=16G,mem_free=16G,gpu=4,hostname=!b*&!c03*
 #$ -q 4gpu.q
 
 # &!octopod*
@@ -18,6 +18,8 @@ export PYTHONPATH=/export/fs04/a12/rhuang/k2/build/temp.linux-x86_64-cpython-38/
 # export PYTHONPATH=/export/fs04/a12/rhuang/icefall/:$PYTHONPATH
 export PYTHONPATH=/export/fs04/a12/rhuang/icefall_align2/:$PYTHONPATH
 
+hostname
+nvidia-smi
 echo "python: `which python`"
 
 #### Assign a free-GPU to your program (make sure -n matches the requested number of GPUs above)
@@ -52,26 +54,26 @@ python3 -c "import torch; print(torch.__version__)"
 #     --num-epochs 30 \
 #     --exp-dir "tdnn_lstm_ctc/exp/exp_libri_full"
 
-# libri100
-python tdnn_lstm_ctc/train.py \
-    --world-size 4 \
-    --full-libri false \
-    --max-duration 200 \
-    --num-epochs 30 \
-    --valid-interval 100 \
-    --exp-dir "tdnn_lstm_ctc/exp/exp_libri_100"
+# # libri100
+# python tdnn_lstm_ctc/train.py \
+#     --world-size 4 \
+#     --full-libri false \
+#     --max-duration 200 \
+#     --num-epochs 30 \
+#     --valid-interval 100 \
+#     --exp-dir "tdnn_lstm_ctc/exp/exp_libri_100"
 
-# # zipformer_ctc on libri100
-./zipformer_ctc/train.py \
-  --world-size 4 \
-  --master-port 12345 \
-  --num-epochs 30 \
-  --start-epoch 1 \
-  --lang-dir data/lang_bpe_500 \
-  --exp-dir zipformer_ctc/exp/exp_libri_100  \
-  --max-duration 200 \
-  --full-libri false \
-  --use-fp16 true
+# # # zipformer_ctc on libri100
+# ./zipformer_ctc/train.py \
+#   --world-size 4 \
+#   --master-port 12345 \
+#   --num-epochs 30 \
+#   --start-epoch 1 \
+#   --lang-dir data/lang_bpe_500 \
+#   --exp-dir zipformer_ctc/exp/exp_libri_100  \
+#   --max-duration 200 \
+#   --full-libri false \
+#   --use-fp16 true
 
 # zipformer_hmm_ml on libri100
 ./zipformer_mmi_hmm/train.py \
@@ -87,4 +89,4 @@ python tdnn_lstm_ctc/train.py \
   --warm-step 90000000000 \
   --num-workers 6 \
   --ctc-beam-size 15 \
-  --sil-modeling true
+  --sil-modeling false

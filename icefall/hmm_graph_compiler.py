@@ -130,7 +130,7 @@ class HMMTrainingGraphCompiler(object):
         '''
         This should produce the same topo as `k2.ctc_topo(max_token_id, modified=True)`
         '''
-        print("Using `ctc_topo_modified`")
+        print("Using my own version of `ctc_topo_modified`")
         num_tokens = max_token
         # assert (
         #     sil_id <= max_token
@@ -170,6 +170,190 @@ class HMMTrainingGraphCompiler(object):
         # fst = k2.expand_ragged_attributes(fst)
         return fst
 
+    def ctc_topo_modified_debug_for_hmm__debug1__this_can_converge(
+        max_token: int,
+        sil_id: int,
+        lexicon=None,
+    ) -> k2.Fsa:
+        '''
+        This should produce the same topo as `k2.ctc_topo(max_token_id, modified=True)`
+        '''
+        print("Using `ctc_topo_modified_debug_for_hmm`: debug1")
+        num_tokens = max_token
+        # assert (
+        #     sil_id <= max_token
+        # ), f"sil_id={sil_id} should be less or equal to max_token={max_token}"
+
+        num_states = num_tokens + 2
+
+        # ref: https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/prepare_lang.py#L248
+
+        start_state = 0
+        final_state = num_states - 1
+        arcs = []
+
+        blk = 0
+        eps = 0
+        arcs.append([start_state, start_state, sil_id, eps, 0])
+
+        for i in range(1, max_token + 1):
+            arcs.append([start_state, start_state, i, i, 0])
+
+        for i in range(1, max_token + 1):
+            cur_state = i  # state_id = token_id
+            arcs.append([start_state, cur_state, i, i, 0])
+            arcs.append([cur_state, cur_state, i, eps, 0])
+            arcs.append([cur_state, start_state, i, eps, 0])
+
+        arcs.append([start_state, final_state, -1, -1, 0])
+        arcs.append([final_state])
+
+        arcs = sorted(arcs, key=lambda arc: arc[0])
+        arcs = [[str(i) for i in arc] for arc in arcs]
+        arcs = [" ".join(arc) for arc in arcs]
+        arcs = "\n".join(arcs)
+
+        fst = k2.Fsa.from_str(arcs, acceptor=False)
+        # fst = k2.remove_epsilon(fst)  # Credit: Matthew W
+        # fst = k2.expand_ragged_attributes(fst)
+        return fst
+
+    def ctc_topo_modified_debug_for_hmm__debug2__cannot_converge(
+        max_token: int,
+        sil_id: int,
+        lexicon,
+    ) -> k2.Fsa:
+        '''
+        This should produce the same topo as `k2.ctc_topo(max_token_id, modified=True)`
+        '''
+        print("Using `ctc_topo_modified_debug_for_hmm`: debug2")
+        num_tokens = max_token
+        # assert (
+        #     sil_id <= max_token
+        # ), f"sil_id={sil_id} should be less or equal to max_token={max_token}"
+
+        # ref: https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/prepare_lang.py#L248
+
+        start_state = 0
+        sil_state = 1
+        next_available_state = 2
+        arcs = []
+
+        blk = 0
+        eps = 0
+        # arcs.append([start_state, start_state, sil_id, eps, 0])
+
+        print(f"max_token={max_token}")
+        print(f"sil_id={sil_id}")
+        print(f"start_tokens={len([i for i in range(1, max_token + 1) if lexicon.token_table.get(i).startswith('▁')])}")
+
+        for i in range(1, max_token + 1):
+            arcs.append([start_state, start_state, i, i, 0])
+
+        arcs.append([start_state, sil_state, sil_id, eps, 0])
+        arcs.append([sil_state, sil_state, sil_id, eps, 0])
+        for i in range(1, max_token + 1):
+            token = lexicon.token_table.get(i)
+            if token.startswith("▁"):
+                arcs.append([sil_state, start_state, i, i, 0])
+
+        for i in range(1, max_token + 1):
+            cur_state = next_available_state
+            next_available_state += 1
+
+            arcs.append([start_state, cur_state, i, i, 0])
+            arcs.append([cur_state, cur_state, i, eps, 0])
+            arcs.append([cur_state, start_state, i, eps, 0])
+
+            token = lexicon.token_table.get(i)
+            if token.startswith("▁"):
+                cur_sil_state = next_available_state
+                next_available_state += 1
+                arcs.append([start_state, cur_sil_state, sil_id, eps, 0])
+                arcs.append([cur_sil_state, cur_sil_state, sil_id, eps, 0])
+                arcs.append([cur_sil_state, cur_state, i, i, 0])
+
+        final_state = next_available_state
+        arcs.append([start_state, final_state, -1, -1, 0])
+        arcs.append([final_state])
+
+        arcs = sorted(arcs, key=lambda arc: arc[0])
+        arcs = [[str(i) for i in arc] for arc in arcs]
+        arcs = [" ".join(arc) for arc in arcs]
+        arcs = "\n".join(arcs)
+
+        fst = k2.Fsa.from_str(arcs, acceptor=False)
+        fst = k2.connect(fst)
+        # fst = k2.remove_epsilon(fst)  # Credit: Matthew W
+        # fst = k2.expand_ragged_attributes(fst)
+        return fst
+    
+    def ctc_topo_modified_debug_for_hmm(
+        max_token: int,
+        sil_id: int,
+        lexicon,
+    ) -> k2.Fsa:
+        '''
+        This should produce the same topo as `k2.ctc_topo(max_token_id, modified=True)`
+        '''
+        print("Using `ctc_topo_modified_debug_for_hmm`: debug2, remove non-determinism")
+        num_tokens = max_token
+        # assert (
+        #     sil_id <= max_token
+        # ), f"sil_id={sil_id} should be less or equal to max_token={max_token}"
+
+        # ref: https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/prepare_lang.py#L248
+
+        start_state = 0
+        sil_state = 1
+        next_available_state = 2
+        arcs = []
+
+        blk = 0
+        eps = 0
+        # arcs.append([start_state, start_state, sil_id, eps, 0])
+
+        print(f"max_token={max_token}")
+        print(f"sil_id={sil_id}")
+        print(f"start_tokens={len([i for i in range(1, max_token + 1) if lexicon.token_table.get(i).startswith('▁')])}")
+
+        for i in range(1, max_token + 1):
+            arcs.append([start_state, start_state, i, i, 0])
+
+        arcs.append([start_state, sil_state, sil_id, eps, 0])
+        arcs.append([sil_state, sil_state, sil_id, eps, 0])
+        for i in range(1, max_token + 1):
+            token = lexicon.token_table.get(i)
+            if token.startswith("▁"):
+                arcs.append([sil_state, start_state, i, i, 0])
+
+        for i in range(1, max_token + 1):
+            cur_state = next_available_state
+            next_available_state += 1
+
+            arcs.append([start_state, cur_state, i, i, 0])
+            arcs.append([cur_state, cur_state, i, eps, 0])
+            arcs.append([cur_state, start_state, i, eps, 0])
+
+            token = lexicon.token_table.get(i)
+            if token.startswith("▁"):
+                arcs.append([sil_state, cur_state, i, i, 0])
+
+        final_state = next_available_state
+        arcs.append([start_state, final_state, -1, -1, 0])
+        arcs.append([final_state])
+
+        arcs = sorted(arcs, key=lambda arc: arc[0])
+        arcs = [[str(i) for i in arc] for arc in arcs]
+        arcs = [" ".join(arc) for arc in arcs]
+        arcs = "\n".join(arcs)
+
+        fst = k2.Fsa.from_str(arcs, acceptor=False)
+        fst = k2.connect(fst)
+        # fst = k2.remove_epsilon(fst)  # Credit: Matthew W
+        # fst = k2.expand_ragged_attributes(fst)
+        return fst
+
     @staticmethod
     def determinize(k2_fst):
         fst = k2_to_openfst(k2_fst, olabels="aux_labels")
@@ -184,6 +368,19 @@ class HMMTrainingGraphCompiler(object):
 
         k2_fst = k2.Fsa.from_openfst(det_fst.to_str(), acceptor=False)
         # k2.determinize(k2_fst, k2.DeterminizeWeightPushingType.kLogWeightPushing)
+        return k2_fst
+
+    @staticmethod
+    def minimize(k2_fst, allow_nondet=False):
+        fst = k2_to_openfst(k2_fst, olabels="aux_labels")
+
+        min_fst = fst
+        kaldifst.minimize(
+            min_fst, allow_nondet=allow_nondet,
+        )
+        kaldifst.rmepsilon(min_fst)
+
+        k2_fst = k2.Fsa.from_openfst(min_fst.to_str(), acceptor=False)
         return k2_fst
 
     ####################################
@@ -243,8 +440,13 @@ class HMMTrainingGraphCompiler(object):
         # )  # add one for the <sil> token
         # hmm_topo = k2.ctc_topo(max_token_id, modified=False)
         # hmm_topo = k2.ctc_topo(max_token_id, modified=True)
-        hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified(
-            max_token_id, None
+        # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified(
+        #     max_token_id, None
+        # )
+        hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified_debug_for_hmm(
+            max_token_id + 1 if sil_word is not None else max_token_id, 
+            lexicon.token_table["#0"],
+            lexicon,
         )
         print(f"Topo size: {(hmm_topo.shape[0], hmm_topo.num_arcs)}")
 
@@ -298,8 +500,23 @@ class HMMTrainingGraphCompiler(object):
         #         decoding_graph_list.append(decoding_graph_i)
         #     decoding_graph = k2.create_fsa_vec(decoding_graph_list)
 
+        # if len(decoding_graph.shape) == 2:
+        #     decoding_graph = k2.connect(decoding_graph)
+        #     decoding_graph = HMMTrainingGraphCompiler.minimize(decoding_graph, allow_nondet=True)
+        #     decoding_graph = k2.create_fsa_vec([decoding_graph])
+        # else:
+        #     num_fsas = decoding_graph.shape[0]
+        #     decoding_graph_list = []
+        #     for i in range(num_fsas):
+        #         decoding_graph_i = decoding_graph[i]
+        #         decoding_graph_i = k2.connect(decoding_graph_i)
+        #         decoding_graph_i = HMMTrainingGraphCompiler.minimize(decoding_graph_i, allow_nondet=True)
+        #         decoding_graph_list.append(decoding_graph_i)
+        #     decoding_graph = k2.create_fsa_vec(decoding_graph_list)
+
         assert decoding_graph.requires_grad is False
 
+        decoding_graph = k2.connect(decoding_graph)        
         return decoding_graph
 
     def texts_to_ids(self, texts: List[str]) -> List[List[int]]:

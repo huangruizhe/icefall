@@ -17,7 +17,7 @@ cd /export/fs04/a12/rhuang/icefall/egs/librispeech/ASR
 cd /exp/rhuang/icefall_latest/egs/librispeech/ASR
 scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/tdnn_lstm_ctc/decode.py tdnn_lstm_ctc/.
 
-
+b 649
 
 transcript_fsa.labels_sym = self.lexicon.token_table
 transcript_fsa[0].draw("aaa.svg")
@@ -26,8 +26,10 @@ decoding_graph.labels_sym = self.lexicon.token_table
 decoding_graph.aux_labels_sym = self.lexicon.word_table
 decoding_graph[0].draw("aaa1.svg")
 
+supervisions['text'][0]
 decoding_graph.labels_sym = ctc_graph_compiler.lexicon.token_table
 decoding_graph.aux_labels_sym = ctc_graph_compiler.lexicon.word_table
+decoding_graph[0].shape, decoding_graph[0].num_arcs
 decoding_graph[0].draw("aaa1.svg")
 
 word_fsa.labels_sym = self.lexicon.word_table
