@@ -170,6 +170,52 @@ class HMMTrainingGraphCompiler(object):
         # fst = k2.expand_ragged_attributes(fst)
         return fst
 
+    def ctc_topo_modified_no_blk(
+        max_token: int,
+        sil_id: int,
+    ) -> k2.Fsa:
+        '''
+        This should produce the same topo as `k2.ctc_topo(max_token_id, modified=True)`
+        '''
+        print("Using my own version of `ctc_topo_modified`")
+        num_tokens = max_token
+        # assert (
+        #     sil_id <= max_token
+        # ), f"sil_id={sil_id} should be less or equal to max_token={max_token}"
+
+        num_states = num_tokens + 2
+
+        # ref: https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/prepare_lang.py#L248
+
+        start_state = 0
+        final_state = num_states - 1
+        arcs = []
+
+        blk = 0
+        eps = 0
+
+        for i in range(1, max_token + 1):
+            arcs.append([start_state, start_state, i, i, 0])
+
+        for i in range(1, max_token + 1):
+            cur_state = i  # state_id = token_id
+            arcs.append([start_state, cur_state, i, i, 0])
+            arcs.append([cur_state, cur_state, i, eps, 0])
+            arcs.append([cur_state, start_state, i, eps, 0])
+
+        arcs.append([start_state, final_state, -1, -1, 0])
+        arcs.append([final_state])
+
+        arcs = sorted(arcs, key=lambda arc: arc[0])
+        arcs = [[str(i) for i in arc] for arc in arcs]
+        arcs = [" ".join(arc) for arc in arcs]
+        arcs = "\n".join(arcs)
+
+        fst = k2.Fsa.from_str(arcs, acceptor=False)
+        # fst = k2.remove_epsilon(fst)  # Credit: Matthew W
+        # fst = k2.expand_ragged_attributes(fst)
+        return fst
+
     def ctc_topo_modified_debug_for_hmm__debug1__this_can_converge(
         max_token: int,
         sil_id: int,
@@ -296,7 +342,7 @@ class HMMTrainingGraphCompiler(object):
         '''
         This should produce the same topo as `k2.ctc_topo(max_token_id, modified=True)`
         '''
-        print("Using `ctc_topo_modified_debug_for_hmm`: debug2, remove non-determinism")
+        print("Using `ctc_topo_modified_debug_for_hmm`: debug2, removed some non-determinism")
         num_tokens = max_token
         # assert (
         #     sil_id <= max_token
@@ -443,11 +489,14 @@ class HMMTrainingGraphCompiler(object):
         # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified(
         #     max_token_id, None
         # )
-        hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified_debug_for_hmm(
-            max_token_id + 1 if sil_word is not None else max_token_id, 
-            lexicon.token_table["#0"],
-            lexicon,
+        hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified_no_blk(
+            max_token_id, None
         )
+        # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified_debug_for_hmm(
+        #     max_token_id + 1 if sil_word is not None else max_token_id, 
+        #     lexicon.token_table["#0"],
+        #     lexicon,
+        # )
         print(f"Topo size: {(hmm_topo.shape[0], hmm_topo.num_arcs)}")
 
         self.topo = hmm_topo.to(device)
