@@ -80,7 +80,7 @@ from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_collector i
 from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_encoder import ContextEncoder
 from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_encoder_lstm import ContextEncoderLSTM
 from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_encoder_pretrained import ContextEncoderPretrained
-from egs.spgispeech.ASR.pruned_transducer_stateless2_context.bert_encoder import BertEncoder
+from egs.spgispeech.ASR.pruned_transducer_stateless2_context.word_encoder_bert import BertEncoder
 
 from icefall import LmScorer, NgramLm, BiasedNgramLm
 from icefall.checkpoint import average_checkpoints, find_checkpoints, load_checkpoint

@@ -1,0 +1,1 @@
+../../../librispeech/ASR/pruned_transducer_stateless7_context/word_encoder_bert.py

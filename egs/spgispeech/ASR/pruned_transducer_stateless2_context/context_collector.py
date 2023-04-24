@@ -7,7 +7,7 @@ import logging
 import ast
 import numpy as np
 from itertools import chain
-from bert_encoder import BertEncoder
+from word_encoder_bert import BertEncoder
 from context_wfst import generate_context_graph_nfa
 
 class ContextCollector(torch.utils.data.Dataset):
@@ -100,7 +100,7 @@ class ContextCollector(torch.utils.data.Dataset):
                 base_name = filename.split("/")[-1]
                 base_name = base_name.replace(".txt", "")  # one ec
 
-                logging.info(f"EC {base_name} biasing list size: {len(biasing_list)} -> {len(biasing_list2)}")
+                logging.info(f"EC {base_name} biasing list size: {len(biasing_list)} -> keep rare only: {len(biasing_list2)}")
                 self.ec53_biasing_list[base_name] = biasing_list2
                 new_words.update(biasing_list2.keys())
             
@@ -117,6 +117,8 @@ class ContextCollector(torch.utils.data.Dataset):
             oovs = [w for w in new_words if w not in _all_words]
             logging.info(f"Number of OOVs from predefined biasing lists: {len(oovs)}, Example: {random.sample(oovs, min(5, len(oovs)))}")
 
+            self.word_analysis(oovs)
+
         if self.sp is not None:
             all_words2pieces = sp.encode(self.all_words, out_type=int)  # a list of list of int
             all_words2pieces = {w: pieces for w, pieces in zip(self.all_words, all_words2pieces)}
@@ -124,6 +126,46 @@ class ContextCollector(torch.utils.data.Dataset):
             logging.info(f"len(self.all_words2pieces)={len(self.all_words2pieces)}")
 
         self.temp_dict = None
+        self.temp_rare_words_list = None
+
+    def word_analysis(self, oovs):
+        file_oovs = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/oovs.txt"
+        with open(file_oovs, "w") as fout:
+            for w in set(oovs):
+                print(w, file=fout)
+        logging.info(f"There are {len(oovs)} OOVs.")
+        
+        from lhotse import CutSet
+
+        ec53_cuts_file = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
+        logging.info(f"Loading cuts from: {ec53_cuts_file}")
+        ec53_cuts = CutSet.from_file(ec53_cuts_file)
+        gt_words = set()
+        for c in ec53_cuts:
+            gt_words.update(c.supervisions[0].text.split())
+        logging.info(f"There are {len(gt_words)} unique GT words.")
+        
+        file_oovs_in_gt = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/oovs_in_gt.txt"
+        cnt = 0
+        with open(file_oovs_in_gt, "w") as fout:
+            for w in set(oovs):
+                if w in gt_words:
+                    cnt += 1
+                    print(w, file=fout)
+        logging.info(f"There are {cnt} OOVs in GT.")
+
+        context_words = set()
+        for base_name, blist in self.ec53_biasing_list.items():
+            context_words.update(blist.keys())
+        cnt = 0
+        cnt_oov = 0
+        oovs = set(oovs)
+        for w in context_words:
+            if w in gt_words:
+                cnt += 1
+                if w in oovs:
+                    cnt_oov += 1
+        logging.info(f"There are {cnt} unique rare words in the slides spoken in GT, where {cnt_oov} are OOVs.")
 
     def add_new_words(self, new_words_list, return_dict=False, silent=False):
         if len(new_words_list) == 0:
@@ -269,6 +311,7 @@ class ContextCollector(torch.utils.data.Dataset):
             rare_words_list = self._get_predefined_word_lists(batch)
         else:
             rare_words_list = self._get_random_word_lists(batch)
+        self.temp_rare_words_list = rare_words_list
         
         if self.all_words2embeddings is None:
             # Use SentencePiece to encode the words

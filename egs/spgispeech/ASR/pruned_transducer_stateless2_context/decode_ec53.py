@@ -80,7 +80,7 @@ from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_collector i
 from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_encoder import ContextEncoder
 from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_encoder_lstm import ContextEncoderLSTM
 from egs.spgispeech.ASR.pruned_transducer_stateless2_context.context_encoder_pretrained import ContextEncoderPretrained
-from egs.spgispeech.ASR.pruned_transducer_stateless2_context.bert_encoder import BertEncoder
+from egs.spgispeech.ASR.pruned_transducer_stateless2_context.word_encoder_bert import BertEncoder
 
 from icefall import LmScorer, NgramLm, BiasedNgramLm
 from icefall.checkpoint import average_checkpoints, find_checkpoints, load_checkpoint
@@ -465,7 +465,7 @@ def decode_one_batch(
         ]
         model.scratch_space["biased_lm_list"] = biased_lm_list
 
-    if not model.no_encoder_biasing:
+    if not model.no_encoder_biasing or not model.no_decoder_biasing:
         # cuts in the same batch can share the sample context
         batch_size = len(batch['supervisions']['cut'])
         _batch = {'supervisions': {'cut': batch['supervisions']['cut'][:1]}}
@@ -485,6 +485,7 @@ def decode_one_batch(
         model.scratch_space["contexts"] = contexts
         model.scratch_space["contexts_mask"] = contexts_mask
 
+    if not model.no_encoder_biasing:
         encoder_biasing_out, attn = model.encoder_biasing_adapter.forward(encoder_out, contexts, contexts_mask)
         encoder_out = encoder_out + encoder_biasing_out
     
@@ -941,6 +942,44 @@ def main():
     # fix_random_seed(12358)
     # ec53_cuts = ec53_cuts.sample(n_cuts=500)
     # ec53_cuts.describe()
+
+    # from lhotse import CutSet
+    # test_clean_cuts = [c for c in test_clean_cuts][:500]
+    # test_other_cuts = [c for c in test_other_cuts][:500]
+    # # test_other_cuts1 = [c for c in test_other_cuts if c.id == "1998-29455-0019-602"]
+    # # test_other_cuts = test_other_cuts1 + [c for c in test_other_cuts][1700:1710]
+    # test_clean_cuts = CutSet.from_cuts(test_clean_cuts)
+    # test_other_cuts = CutSet.from_cuts(test_other_cuts)
+
+    # # from lhotse import CutSet
+    # cids = [
+    #     "BAYZF_2018_Q4_20190227_00-00-05-740_00-00-11-120",
+    #     "BAYZF_2018_Q4_20190227_00-00-25-640_00-00-31-480",
+    #     "BAYZF_2018_Q4_20190227_00-00-32-680_00-00-34-960",
+    #     "BAYZF_2018_Q4_20190227_00-00-43-140_00-00-52-080",
+    #     "BAYZF_2018_Q4_20190227_00-00-52-080_00-00-58-160",
+    #     "BAYZF_2018_Q4_20190227_00-00-58-760_00-01-03-880",
+    #     "BAYZF_2018_Q4_20190227_00-01-04-240_00-01-14-80",
+    #     "BAYZF_2018_Q4_20190227_00-01-38-360_00-01-40-560",
+    #     "BAYZF_2018_Q4_20190227_00-01-42-720_00-01-45-70",
+    #     "BAYZF_2018_Q4_20190227_00-01-49-640_00-01-52-620",
+    #     "BAYZF_2018_Q4_20190227_00-02-26-640_00-02-44-720",
+    #     "BAYZF_2018_Q4_20190227_00-03-38-180_00-03-41-10",
+    #     "BAYZF_2018_Q4_20190227_00-04-43-580_00-04-47-820",
+    #     "BAYZF_2018_Q4_20190227_00-04-47-820_00-04-53-10",
+    #     "BAYZF_2019_Q4_20200227_00-59-18-60_00-59-23-520",
+    #     "BAYZF_2019_Q4_20200227_01-00-57-840_01-01-03-640",
+    #     "BAYZF_2019_Q4_20200227_00-54-41-880_00-54-58-520",
+    # ]
+    # cids = set(cids)
+    # ec53_cuts = [c for c in ec53_cuts if c.id in cids]  # + [c for c in ec53_cuts][:9]
+    # # ec53_cuts = [c for c in ec53_cuts if c.id == "1089-134686-0016-2185"]
+    # ec53_cuts = CutSet.from_cuts(ec53_cuts)
+    # ec53_cuts.describe()
+
+    # TODO:
+    # 7729-102255-0015-210
+    # 1995-1836-0000-8621995-1836-0000
 
     dev_dl = spgispeech.test_dataloaders(dev_cuts)
     val_dl = spgispeech.test_dataloaders(val_cuts)
