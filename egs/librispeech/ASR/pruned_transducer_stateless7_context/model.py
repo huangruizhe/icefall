@@ -167,7 +167,17 @@ class Transducer(nn.Module):
         # decoder_out: [B, S + 1, decoder_dim]
         decoder_out = self.decoder(sos_y_padded)
 
-        decoder_biasing_out, attn = self.decoder_biasing_adapter.forward(decoder_out, contexts, contexts_mask)
+        if self.context_encoder.bi_encoders:
+            contexts_dec, contexts_dec_mask = self.context_encoder.embed_contexts(
+                word_list,
+                word_lengths,
+                num_words_per_utt,
+                is_encoder_side=False,
+            )
+        else:
+            contexts_dec, contexts_dec_mask = contexts, contexts_mask
+
+        decoder_biasing_out, attn = self.decoder_biasing_adapter.forward(decoder_out, contexts_dec, contexts_dec_mask)
         decoder_out = decoder_out + decoder_biasing_out
 
         # Note: y does not start with SOS

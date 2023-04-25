@@ -1,0 +1,1 @@
+../pruned_transducer_stateless2_context/word_encoder_fasttext.py

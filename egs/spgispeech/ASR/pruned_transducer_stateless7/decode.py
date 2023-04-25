@@ -817,6 +817,10 @@ def main():
     if params.use_averaged_model:
         params.suffix += "-use-averaged-model"
 
+    import time
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+    params.suffix += f"-{timestr}"
+    
     setup_logger(f"{params.res_dir}/log-decode-{params.suffix}")
     logging.info("Decoding started")
 

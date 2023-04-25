@@ -197,8 +197,10 @@ class ContextCollector(torch.utils.data.Dataset):
         pass
 
     def _get_random_word_lists(self, batch):
-        # texts = batch["supervisions"]["text"]  # For training
-        texts = [cut.supervisions[0].text for cut in batch['supervisions']['cut']]  # For decoding ec53
+        if "text" in batch["supervisions"]:
+            texts = batch["supervisions"]["text"]  # For training
+        else:
+            texts = [cut.supervisions[0].text for cut in batch['supervisions']['cut']]  # For decoding ec53
 
         new_words = []
         rare_words_list = []

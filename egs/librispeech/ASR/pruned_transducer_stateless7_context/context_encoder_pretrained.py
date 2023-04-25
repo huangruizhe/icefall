@@ -38,6 +38,7 @@ class ContextEncoderPretrained(ContextEncoder):
         self, 
         word_list, 
         word_lengths,
+        is_encoder_side=None,
     ):
         out = word_list  # Shape: N*L*D
         # out = self.drop_out(out)

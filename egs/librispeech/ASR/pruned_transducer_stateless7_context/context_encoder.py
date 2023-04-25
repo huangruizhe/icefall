@@ -9,7 +9,8 @@ class ContextEncoder(torch.nn.Module):
     def forward(
         self, 
         word_list, 
-        word_lengths
+        word_lengths,
+        is_encoder_side=None,
     ):
         pass
 
@@ -18,6 +19,7 @@ class ContextEncoder(torch.nn.Module):
         word_list,
         word_lengths,
         num_words_per_utt,
+        is_encoder_side=None,
     ):
         """
         Args:
@@ -40,7 +42,7 @@ class ContextEncoder(torch.nn.Module):
         """
 
         # print(f"word_list.shape={word_list.shape}")
-        final_h = self.forward(word_list, word_lengths)
+        final_h = self.forward(word_list, word_lengths, is_encoder_side=is_encoder_side)
 
         final_h = torch.split(final_h, num_words_per_utt)
         final_h = torch.nn.utils.rnn.pad_sequence(

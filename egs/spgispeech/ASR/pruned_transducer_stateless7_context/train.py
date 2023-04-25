@@ -51,6 +51,7 @@ import warnings
 from pathlib import Path
 from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
+import itertools
 
 import k2
 import optim
@@ -409,6 +410,13 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--is-bi-context-encoder",
+        type=str2bool,
+        default=False,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -534,8 +542,9 @@ def get_contextual_model(params: AttributeDict) -> nn.Module:
             context_encoder_dim=768,  # TODO: Hard-wired for BERT-base now
             output_dim=context_dim,
             drop_out=0.1,
+            bi_encoders=params.is_bi_context_encoder,
         )
-    else:        
+    else:
         context_encoder = ContextEncoderLSTM(
             vocab_size=params.vocab_size,
             # context_encoder_dim=int(params.encoder_dims.split(",")[-1]),
@@ -545,10 +554,11 @@ def get_contextual_model(params: AttributeDict) -> nn.Module:
             num_layers=2,
             num_directions=2,
             drop_out=0.1,
+            bi_encoders=params.is_bi_context_encoder,
         )
 
     encoder_biasing_adapter = BiasingModule(
-        query_dim=params.encoder_dim,
+        query_dim=int(params.encoder_dims.split(",")[-1]),
         qkv_dim=context_dim,
         num_heads=4,
     )
@@ -910,6 +920,7 @@ def train_one_epoch(
                 loss, loss_info = compute_loss(
                     params=params,
                     model=model,
+                    context_collector=context_collector,
                     sp=sp,
                     batch=batch,
                     is_training=True,
@@ -1264,7 +1275,7 @@ def run(rank, world_size, args):
     valid_cuts = spgispeech.dev_cuts()
     valid_dl = spgispeech.valid_dataloaders(valid_cuts)
 
-    if not params.print_diagnostics:
+    if False and not params.print_diagnostics:
         scan_pessimistic_batches_for_oom(
             model=model,
             context_collector=context_collector,
