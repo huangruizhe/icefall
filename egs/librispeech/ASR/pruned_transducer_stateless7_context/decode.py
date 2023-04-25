@@ -160,7 +160,7 @@ from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_collector 
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_encoder import ContextEncoder
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_encoder_lstm import ContextEncoderLSTM
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_encoder_pretrained import ContextEncoderPretrained
-from egs.librispeech.ASR.pruned_transducer_stateless7_context.bert_encoder import BertEncoder
+from egs.librispeech.ASR.pruned_transducer_stateless7_context.word_encoder_bert import BertEncoder
 
 from icefall import LmScorer, NgramLm, BiasedNgramLm
 from icefall.checkpoint import (
@@ -667,12 +667,24 @@ def decode_one_batch(
         for hyp in sp.decode(hyp_tokens):
             hyps.append(hyp.split())
     elif params.decoding_method == "modified_beam_search":
-        hyp_tokens = modified_beam_search(
+        # hyp_tokens = modified_beam_search(
+        #     model=model,
+        #     encoder_out=encoder_out,
+        #     encoder_out_lens=encoder_out_lens,
+        #     beam=params.beam_size,
+        # )
+        # for hyp in sp.decode(hyp_tokens):
+        #     hyps.append(hyp.split())
+        
+        results = modified_beam_search(
             model=model,
             encoder_out=encoder_out,
             encoder_out_lens=encoder_out_lens,
             beam=params.beam_size,
+            return_timestamps=True,
         )
+        hyp_tokens = results.hyps
+        timestamps = results.timestamps
         for hyp in sp.decode(hyp_tokens):
             hyps.append(hyp.split())
     elif params.decoding_method == "modified_beam_search_lm_shallow_fusion":
@@ -1186,7 +1198,7 @@ def main():
     # test_other_cuts = CutSet.from_cuts(test_other_cuts)
 
     # from lhotse import CutSet
-    # test_clean_cuts = [c for c in test_clean_cuts if c.id == "1995-1836-0000-862"] + [c for c in test_clean_cuts][:9]
+    # test_clean_cuts = [c for c in test_clean_cuts if c.id == "1089-134686-0016-2185"] + [c for c in test_clean_cuts][:9]
     # # test_clean_cuts = [c for c in test_clean_cuts if c.id == "1089-134686-0016-2185"]
     # test_clean_cuts = CutSet.from_cuts(test_clean_cuts)
     # test_clean_cuts.describe()
