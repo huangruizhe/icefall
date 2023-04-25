@@ -927,8 +927,12 @@ def modified_beam_search(
     assert encoder_out.size(0) >= 1, encoder_out.size(0)
 
     biased_lm_scale = model.scratch_space["biased_lm_scale"] \
-      if model.scratch_space is not None and "biased_lm_scale" in model.scratch_space \
+      if hasattr(model, "scratch_space") \
+        and model.scratch_space is not None \
+        and "biased_lm_scale" in model.scratch_space \
         else 0
+
+    attn_list = []
 
     packed_encoder_out = torch.nn.utils.rnn.pack_padded_sequence(
         input=encoder_out,
@@ -948,10 +952,10 @@ def modified_beam_search(
     assert N == batch_size_list[0], (N, batch_size_list)
 
     sorted_indices = packed_encoder_out.sorted_indices.tolist()
-
+    
     B = [HypothesisList() for _ in range(N)]
     for i in range(N):
-        if "biased_lm_list" in model.scratch_space:
+        if hasattr(model, "scratch_space") and "biased_lm_list" in model.scratch_space:
             biased_lm = model.scratch_space["biased_lm_list"][sorted_indices[i]]
         else:
             biased_lm = None
@@ -968,8 +972,9 @@ def modified_beam_search(
     encoder_out = model.joiner.encoder_proj(packed_encoder_out.data)
 
     # import pdb; pdb.set_trace()
-    contexts = model.scratch_space.get("contexts", None)
-    contexts_mask = model.scratch_space.get("contexts_mask", None)
+    if hasattr(model, "scratch_space"):
+        contexts = model.scratch_space.get("contexts", None)
+        contexts_mask = model.scratch_space.get("contexts_mask", None)
 
     offset = 0
     finalized_B = []
@@ -1001,12 +1006,13 @@ def modified_beam_search(
 
         decoder_out = model.decoder(decoder_input, need_pad=False)
 
-        if not model.no_decoder_biasing:
+        if hasattr(model, "no_decoder_biasing") and not model.no_decoder_biasing:
             contexts_idx = [sorted_indices[i_hyps] for i_hyps, hyps in enumerate(A) for hyp in hyps]
             assert len(contexts_idx) == decoder_out.size(0), (len(contexts_idx), decoder_out.size(0))
             contexts_, contexts_mask_ = contexts[contexts_idx], contexts_mask[contexts_idx]
 
             decoder_biasing_out, attn = model.decoder_biasing_adapter.forward(decoder_out, contexts_, contexts_mask_)  # need_weights=True
+            # attn_list.append(attn)
 
             decoder_out = decoder_out + decoder_biasing_out
         decoder_out = decoder_out.unsqueeze(1)
@@ -1941,8 +1947,10 @@ def modified_beam_search_LODR(
     lm_scale = LM.lm_scale
 
     biased_lm_scale = model.scratch_space["biased_lm_scale"] \
-      if model.scratch_space is not None and "biased_lm_scale" in model.scratch_space \
-        else 0
+      if hasattr(model, "scratch_space") \
+        and model.scratch_space is not None \
+        and "biased_lm_scale" in model.scratch_space \
+      else 0
 
     packed_encoder_out = torch.nn.utils.rnn.pack_padded_sequence(
         input=encoder_out,
@@ -1971,7 +1979,7 @@ def modified_beam_search_LODR(
 
     B = [HypothesisList() for _ in range(N)]
     for i in range(N):
-        if "biased_lm_list" in model.scratch_space:
+        if hasattr(model, "scratch_space") and "biased_lm_list" in model.scratch_space:
             biased_lm = model.scratch_space["biased_lm_list"][sorted_indices[i]]
         else:
             biased_lm = None
@@ -1993,8 +2001,9 @@ def modified_beam_search_LODR(
 
     encoder_out = model.joiner.encoder_proj(packed_encoder_out.data)
 
-    contexts = model.scratch_space.get("contexts", None)
-    contexts_mask = model.scratch_space.get("contexts_mask", None)
+    if hasattr(model, "scratch_space"):
+        contexts = model.scratch_space.get("contexts", None)
+        contexts_mask = model.scratch_space.get("contexts_mask", None)
 
     offset = 0
     finalized_B = []
@@ -2026,7 +2035,7 @@ def modified_beam_search_LODR(
 
         decoder_out = model.decoder(decoder_input, need_pad=False)
 
-        if not model.no_decoder_biasing:
+        if hasattr(model, "no_decoder_biasing") and not model.no_decoder_biasing:
             contexts_idx = [sorted_indices[i_hyps] for i_hyps, hyps in enumerate(A) for hyp in hyps]
             assert len(contexts_idx) == decoder_out.size(0), (len(contexts_idx), decoder_out.size(0))
             contexts_, contexts_mask_ = contexts[contexts_idx], contexts_mask[contexts_idx]
