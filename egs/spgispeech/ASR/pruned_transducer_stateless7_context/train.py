@@ -641,6 +641,12 @@ def load_checkpoint_if_available(
         scheduler=scheduler,
     )
 
+    # # Replace the pretrained ASR model here:
+    # load_checkpoint(
+    #     params.exp_dir / f"epoch-1.pt",
+    #     model=model,
+    # )
+
     keys = [
         "best_train_epoch",
         "best_valid_epoch",
@@ -666,6 +672,8 @@ def load_checkpoint_if_available(
     # # only used for stage 2
     # params["batch_idx_train"] = 25000
     # logging.info(f"batch_idx_train: {params['batch_idx_train']}")
+
+    # logging.info(f"saved_params = {saved_params}")
 
     if params.start_batch > 0:
         if "cur_epoch" in saved_params:

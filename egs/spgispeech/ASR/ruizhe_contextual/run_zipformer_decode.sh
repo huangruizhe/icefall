@@ -41,7 +41,7 @@ echo "hostname: `hostname`"
 
 vocab_size=500
 python pruned_transducer_stateless7/decode.py \
-  --iter 696000 \
+  --iter 598000 \
   --avg 10 \
   --use-averaged-model true \
   --exp-dir pruned_transducer_stateless7/exp_${vocab_size}_norm \

@@ -6,7 +6,7 @@
 #$ -M ruizhe@jhu.edu
 #$ -m e
 #$ -l mem_free=20G,h_rt=600:00:00,gpu=4
-#$ -q gpu.q@@v100
+#$ -q gpu.q@@rtx
 
 # #$ -q gpu.q@@v100
 # #$ -q gpu.q@@rtx
@@ -61,6 +61,7 @@ n_distractors=-1
 max_duration=700
 max_duration=900
 max_duration=1200
+max_duration=1000
 
 # Stage1: Continue training from pretrained.pt
 path_to_pretrained_asr_model="/exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7/"
@@ -102,14 +103,19 @@ python pruned_transducer_stateless7_context/train.py \
   --start-epoch 2 \
   --num-epochs 30 \
   --is-bi-context-encoder true \
-  --n-distractors $n_distractors --n-distractors 0 --is-full-context true
+  --n-distractors $n_distractors --n-distractors 0 --is-full-context true --start-batch 70000
 
 # Stage1: --n-distractors 0 --is-full-context true
 # --start-batch 
 # --is-pretrained-context-encoder true
 
+# tensorboard dev upload --logdir . --description "`pwd`"
 
 # Stage1:
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10620028.out
+#    - https://tensorboard.dev/experiment/bysWCkLbRgS05diMHRtMww/
+# Continue with the 25-5 pretrained ASR model:
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10622087.out
 
 # Stage2 (common words 3k):
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10588947.out

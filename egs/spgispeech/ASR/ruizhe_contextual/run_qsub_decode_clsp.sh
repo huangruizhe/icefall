@@ -55,7 +55,7 @@ avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 
 stage=2
-stop_stage=2
+stop_stage=$stage
 echo "Stage: $stage"
 
 # download model from coe:
@@ -150,7 +150,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
             --beam-size 4 \
             --context-dir "data/rare_words" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 7 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
+            --keep-ratio 1.0 --no-encoder-biasing true --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --context-dir "data/rare_words"
         # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --is-full-context true

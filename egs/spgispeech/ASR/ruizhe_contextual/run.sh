@@ -16,7 +16,10 @@ scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgi
 scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless2_context/*.* pruned_transducer_stateless2_context/.
 scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/*.* ruizhe_contextual/.
 
-scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/rare_words data/.
+scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless7_context/*.* pruned_transducer_stateless7_context/.
+scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/*.* ruizhe_contextual/.
+
+scp -r rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/icefall/*.* /exp/rhuang/icefall_latest/icefall/.
 
 #### re-use fbank for un-normalized text
 # cd /exp/rhuang/icefall_latest/egs/spgispeech/ASR/
@@ -120,3 +123,60 @@ num_mel_bins = 80
 
 /export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_sp_gentle/20220129/cuts3.jsonl.gz
 python ruizhe_contextual/get_train_cuts2.py
+
+# move zipformer model from coe grid to clsp grid
+scp -r /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7/exp_500_norm \
+  rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless7/.
+
+scp -r /exp/rhuang/icefall_latest/egs/spgispeech/ASR/data/lang_bpe_500/ \
+  rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/.
+
+# scp while preserving soft linkes
+rsync -Wav --progress /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7/*.* \
+  rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless7/.
+
+# setup egs/spgispeech/ASR/pruned_transducer_stateless7_context
+cd /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless7_context/
+for f in ../pruned_transducer_stateless7/*.*; do
+    ln -s $f .
+done
+rm asr_datamodule.py train.py decode.py model.py
+for f in ../pruned_transducer_stateless2_context/{asr_datamodule.py,context_*.*,word_encoder_*.*,biasing_module.py,score.py}; do
+    ln -s $f .
+done
+for f in ../pruned_transducer_stateless7/{train.py,decode.py,model.py}; do
+    cp $(realpath $f) .
+done
+for f in ../../../librispeech/ASR/pruned_transducer_stateless7_context/{model.py,}; do
+    ln -s $f .
+done
+# TODO: modify these files train.py, decode.py, decode_ec53.py
+
+
+# export/average the zipformer model
+# https://icefall.readthedocs.io/en/latest/recipes/Non-streaming-ASR/librispeech/pruned_transducer_stateless.html#export-model
+qrsh -q "gpu.q@@rtx" -l 'gpu=1,mem_free=32G,h_rt=600:00:00,hostname=!r3n01*'  # Actually, no need to login to gpu nodes
+cd /exp/rhuang/icefall_latest/egs/spgispeech/ASR
+# Go to the following file to set up envs:
+# /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/run_decode_zipformer.sh
+vocab_size=500
+python pruned_transducer_stateless7/export.py \
+  --exp-dir pruned_transducer_stateless7/exp_${vocab_size}_norm \
+  --bpe-model data/lang_bpe_${vocab_size}/bpe.model \
+  --epoch 25 \
+  --avg 5
+
+# mv manifests and fbanks for spgi dev/val to clsp grid
+cd /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR
+part="dev"
+part="val"
+s1='/exp/rhuang/icefall_latest/egs/spgispeech/ASR/download/spgispeech/'
+s2='/export/c01/corpora6/spgispeech/spgispeech_recovered_uncomplete/'
+zcat /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_${part}.jsonl.gz |\
+  sed "s%$s1%$s2%g" | gzip \
+> /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_${part}_.jsonl.gz
+mv /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_${part}_.jsonl.gz \
+  /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_${part}.jsonl.gz
+
+scp -r /exp/rhuang/icefall_latest/egs/spgispeech/ASR/data/fbank/feats_{dev,val}.lca \
+  rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/fbank/.

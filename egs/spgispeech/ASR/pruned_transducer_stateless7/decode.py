@@ -582,7 +582,6 @@ def decode_one_batch(
             encoder_out=encoder_out,
             encoder_out_lens=encoder_out_lens,
             beam=params.beam_size,
-            sp=sp,
             LODR_lm=ngram_lm,
             LODR_lm_scale=ngram_lm_scale,
             LM=LM,
@@ -721,6 +720,7 @@ def save_results(
     results_dict: Dict[str, List[Tuple[str, List[str], List[str]]]],
 ):
     test_set_wers = dict()
+    test_set_cers = dict()
     for key, results in results_dict.items():
         recog_path = params.res_dir / f"recogs-{test_set_name}-{params.suffix}.txt"
         results = sorted(results)
@@ -736,19 +736,30 @@ def save_results(
             )
             test_set_wers[key] = wer
 
+        # we also compute CER for spgispeech dataset.
+        results_char = []
+        for res in results:
+            results_char.append((res[0], list("".join(res[1])), list("".join(res[2]))))
+        cers_filename = params.res_dir / f"cers-{test_set_name}-{params.suffix}.txt"
+        with open(cers_filename, "w") as f:
+            cer = write_error_stats(
+                f, f"{test_set_name}-{key}", results_char, enable_log=True
+            )
+            test_set_cers[key] = cer
+        
         logging.info("Wrote detailed error stats to {}".format(errs_filename))
 
     test_set_wers = sorted(test_set_wers.items(), key=lambda x: x[1])
     errs_info = params.res_dir / f"wer-summary-{test_set_name}-{params.suffix}.txt"
     with open(errs_info, "w") as f:
-        print("settings\tWER", file=f)
+        print("settings\tWER\tCER", file=f)
         for key, val in test_set_wers:
-            print("{}\t{}".format(key, val), file=f)
+            print("{}\t{}\t{}".format(key, val, test_set_cers[key]), file=f)
 
-    s = "\nFor {}, WER of different settings are:\n".format(test_set_name)
+    s = "\nFor {}, WER/CER of different settings are:\n".format(test_set_name)
     note = "\tbest for {}".format(test_set_name)
     for key, val in test_set_wers:
-        s += "{}\t{}{}\n".format(key, val, note)
+        s += "{}\t{}\t{}{}\n".format(key, val, test_set_cers[key], note)
         note = ""
     logging.info(s)
 
