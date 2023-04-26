@@ -497,6 +497,13 @@ def get_parser():
         default=0.0,
         help="",
     )
+
+    parser.add_argument(
+        "--is-bi-context-encoder",
+        type=str2bool,
+        default=False,
+        help="",
+    )
     
     add_model_arguments(parser)
 
@@ -889,7 +896,6 @@ def save_results(
         logging.info("Wrote detailed error stats to {}".format(errs_filename))
 
     test_set_wers = sorted(test_set_wers.items(), key=lambda x: x[1])
-    test_set_cers = sorted(test_set_cers.items(), key=lambda x: x[1])
     errs_info = params.res_dir / f"wer-summary-{test_set_name}-{params.suffix}.txt"
     with open(errs_info, "w") as f:
         print("settings\tWER\tCER", file=f)

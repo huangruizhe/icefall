@@ -121,6 +121,10 @@ python pruned_transducer_stateless7_context/train.py \
 #
 # Add some distractors: --n-distractors 20 --keep-ratio 0.9 --is-full-context true --start-batch 84000
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10623174.out
+#    - https://tensorboard.dev/experiment/fXGKv6kZSweaqAu11WCxNw/
+# V100: --n-distractors 30 --keep-ratio 0.9 --is-full-context true --start-epoch 11 --master-port 12365
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10623530.out
+#    - https://tensorboard.dev/experiment/bV0GEo7QSb6pFoSqzIjDyg/
 
 # Stage2 (common words 3k):
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10588947.out

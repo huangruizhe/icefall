@@ -51,7 +51,7 @@ context_suffix="_slides"
 # context_suffix="_0.0"
 # context_suffix="_100recall"
 
-epochs=99
+epochs=1
 avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 
@@ -88,6 +88,7 @@ fi
 
 # Results:
 # /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629147.out
+#   10.39_47315     9.53_39474      62.09_2124      57.78_245       33.62_1229      15.08_308
 
 # No biasing at all + RNNLM + LODR
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
@@ -95,7 +96,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
   # rnnlm_dir="/export/fs04/a12/rhuang/contextualizedASR/lm/LM/my-rnnlm-exp-1024-2-tied"  # --rnn-lm-num-layers 2 --lm-epoch 14 --lm-avg 5 --lm-scale 0.1 --ngram-lm-scale -0.05
   lm_type=rnn
   lang_dir="/export/fs04/a12/rhuang/contextualizedASR/lm/LM/my-ngram-exp/bpe"
-  rnn_lm_scale=0.15
+  rnn_lm_scale=0.2
   ngram_lm_scale=-0.1
   tokens_ngram_order=2
   python pruned_transducer_stateless7/decode.py \
@@ -124,8 +125,13 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
 fi
 
 # Results:
-# 1024-3: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629150.out
-# 1024-2: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629152.out
+# 1024-3 (0.15-0.1): /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629150.out
+#           10.20_46421     9.34_38691      60.86_2082      57.31_243       32.36_1183      15.03_307
+# 1024-3 (0.2-0.1):  /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629176.out /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629312.out
+#           10.17_46319     9.32_38595      60.68_2076      57.31_243       32.03_1171      15.12_309
+# 1024-2 (0.1-0.05): /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629152.out
+#           10.24_46635     9.38_38848      61.50_2104      58.25_247       32.85_1201      15.08_308
+
 
 # Use biasing
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
@@ -133,18 +139,19 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
     for epoch in $epochs; do
       for avg in $avgs; do
         # python -m pdb -c continue
-        # python pruned_transducer_stateless2_context/decode.py \
-        python pruned_transducer_stateless2_context/decode_ec53.py \
+        # python pruned_transducer_stateless7_context/decode.py \
+        python pruned_transducer_stateless7_context/decode_ec53.py \
             --epoch $epoch \
             --avg $avg \
+            --use-averaged-model $use_averaged_model \
             --exp-dir $exp_dir \
-            --bpe-model "/export/fs04/a12/rhuang/icefall_align/egs/spgispeech/ASR/tmp/icefall-asr-spgispeech-pruned-transducer-stateless2/data/lang_bpe_500/bpe.model" \
-            --max-duration 500 \
+            --bpe-model "data/lang_bpe_500/bpe.model" \
+            --max-duration 200 \
             --decoding-method $m \
             --beam-size 4 \
             --context-dir "data/rare_words" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --no-encoder-biasing true --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
+            --keep-ratio 1.0 --is-bi-context-encoder false --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 12 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --context-dir "data/rare_words"
         # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --is-full-context true
@@ -154,6 +161,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
         # --is-pretrained-context-encoder true
         # --no-wfst-lm-biasing false --biased-lm-scale 7
         # --is-predefined true --no-wfst-lm-biasing false --biased-lm-scale 7 --no-encoder-biasing true --no-decoder-biasing true
+        # --is-bi-context-encoder false
         #
         # lm-biasing (cheating+distractors): --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 11 --n-distractors 100
         # lm-biasing (slides): --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 3 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
@@ -164,63 +172,31 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
   done
 fi
 
-# Results (cuts100):
-# cd /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR
-# ----------------
-# rare_words_3k + 100 distractors
-# no-biasing:           8.88/5.12 pruned_transducer_stateless2_context/exp/exp_libri_full_c-1_stage2_6k/modified_beam_search/log-decode-epoch-99-avg-1-modified_beam_search-beam-size-4-2023-04-08-22-28-10
-# --biased-lm-scale 5:  8.49/4.99 /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3616728.out
-# --biased-lm-scale 6:  8.49/5.01 /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3616723.out
-# --biased-lm-scale 7:  8.41/5.0  /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3616724.out
-# --biased-lm-scale 8:  8.33/4.94 /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3616725.out
-# --biased-lm-scale 9:  8.41/4.99 pruned_transducer_stateless2_context/exp/exp_libri_full_c-1_stage2_6k/modified_beam_search/log-decode-epoch-99-avg-1-modified_beam_search-beam-size-4-2023-04-08-22-33-53
-# --biased-lm-scale 10: 8.25/4.96 /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3616726.out
-# --biased-lm-scale 11: 8.22/4.96 /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3616727.out
-# --biased-lm-scale 12: 8.88/5.55 3616730
-# --biased-lm-scale 13: 10.02/6.9 3616731
-# --biased-lm-scale 14: 10.26/7.11 3616732
-# --biased-lm-scale 15: 3616733
-# --biased-lm-scale 16: 3616734
-# --biased-lm-scale 17: 3616735
-# --biased-lm-scale 18: 3616736
-# --biased-lm-scale 19: 3616737
-# --biased-lm-scale 20: 13.01/9.93 3616738
-# ----------------
-# slides (cuts100):
-# [20220108] /export/fs04/a12/rhuang/icefall_align/egs/spgispeech/ASR/tmp/icefall-asr-spgispeech-pruned-transducer-stateless2/exp20220108_slides/modified_beam_search_rnnlm_shallow_fusion_biased/log-decode-epoch-30-avg-15-modified_beam_search_rnnlm_shallow_fusion_biased-beam-size-10-3-ngram-lm-scale-0.01-rnnlm-lm-scale-0.1-biased-lm-scale-9.0-use-averaged-model-2023-01-09-07-24-39
-# --biased-lm-scale 5:  8.77/5.15  pruned_transducer_stateless2_context/exp/exp_libri_full_c-1_stage2_6k/modified_beam_search/log-decode-epoch-99-avg-1-modified_beam_search-beam-size-4-2023-04-08-23-17-57
-# --biased-lm-scale 9:  10.61/6.78 pruned_transducer_stateless2_context/exp/exp_libri_full_c-1_stage2_6k/modified_beam_search/log-decode-epoch-99-avg-1-modified_beam_search-beam-size-4-2023-04-08-23-06-07
-# ----------------
-# slides (cuts100, removed common words --- this can reduces the biaisng list size, see /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3616785.out ):
-# 0.1 3616786 8.88/5.12
-# 1 3616785 8.81/5.03
-# 2 3616778 8.69/5.06 
-# 3 3616779 8.53/4.98
-# 4 3616780 8.57/4.99
-# 5 3616781 8.57/4.97
-# 6 3616782 8.49/4.95
-# 7 3616783 9.0/5.3
-# 8 3616784 9.08/5.33
-# ----------------
-# slides (removed common words, cuts800)
-# 0 3616794 10.22/6.5
-# 3 3616788 10.13/6.46
-# 4 3616789 10.13/6.45
-# 5 3616790 10.15/6.46
-# 6 3616791 10.14/6.47
-# 7 3616792 10.22/6.51
-# 8 3616793 10.21/6.52
-# 9 3616795 10.28/6.62
-# ----------------
-# slides (removed common words, cuts_all)
-# 3 3616830  10.77/6.86
-# 4 3616831  10.77/6.86 10.63_48410     9.70_40179      64.86_2219      58.73_249       34.08_1246      14.59_298
-# 5 3616832  10.77/6.87 
-# 6 3616847  10.78/6.88 10.64_48437     9.72_40243      64.48_2206      58.02_246       33.37_1220      14.49_296
-# 7 3616848  10.83/6.92 10.68_48634     9.77_40436      64.07_2192      57.78_245       33.12_1211      14.49_296
-# 8 3616841  10.88/6.97 10.73_48872     9.82_40676      63.78_2182      57.55_244       32.74_1197      14.59_298
-# 9 3616843  10.96/7.05 10.81_49225     9.91_41037      63.64_2177      57.31_243       32.47_1187      14.64_299
-# 10 3616842 11.07/7.16 10.92_49711     10.02_41504     63.43_2170      56.84_241       32.47_1187      14.73_301
+# Results (LM biasing):
+# Baseline (modified beam search): 
+#     10.39_47315     9.53_39474      62.09_2124      57.78_245       33.62_1229      15.08_308
+# --biased-lm-scale 5: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629239.out
+#     10.25_46664     9.44_39079      59.28_2028      54.25_230       30.14_1102      14.19_290
+# --biased-lm-scale 6: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629240.out
+#     10.24_46630     9.44_39083      58.96_2017      53.54_227       29.70_1086      14.19_290
+# --biased-lm-scale 7: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629241.out
+#     10.23_46594     9.44_39076      58.29_1994      53.07_225       29.38_1074      14.10_288
+# --biased-lm-scale 8: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629242.out
+#     10.25_46657     9.46_39159      58.08_1987      53.54_227       29.21_1068      14.10_288
+# --biased-lm-scale 9: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629243.out
+#     10.26_46695     9.47_39215      57.82_1978      52.36_222       29.02_1061      14.10_288
+# --biased-lm-scale 10: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629244.out
+#     10.28_46820     9.50_39342      57.50_1967      52.12_221       28.97_1059      14.05_287
+# --biased-lm-scale 11: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629303.out
+#
+# --biased-lm-scale 12: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629304.out
+#
+
+
+# Results (Neural biasing):
+
+
+
 
 # Neural biasing
 # slides (removed common words, cuts100)
