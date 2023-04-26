@@ -173,6 +173,7 @@ from icefall.utils import (
     write_error_stats,
 )
 
+
 LOG_EPS = math.log(1e-10)
 
 
@@ -989,16 +990,29 @@ def main():
 
     # we need cut ids to display recognition results.
     args.return_cuts = True
+    args.on_the_fly_feats = True   # for EC53
     spgispeech = SPGISpeechAsrDataModule(args)
 
-    dev_cuts = spgispeech.dev_cuts()
-    val_cuts = spgispeech.val_cuts()
+    # dev_cuts = spgispeech.dev_cuts()
+    # val_cuts = spgispeech.val_cuts()
+    
+    from lhotse import CutSet
+    ec53_cuts_file = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
+    logging.info(f"Loading cuts from: {ec53_cuts_file}")
+    ec53_cuts = CutSet.from_file(ec53_cuts_file)
+    # from lhotse.utils import fix_random_seed
+    # fix_random_seed(12355)
+    # ec53_cuts = ec53_cuts.sample(n_cuts=100)
+    ec53_cuts.describe()
 
-    dev_dl = spgispeech.test_dataloaders(dev_cuts)
-    val_dl = spgispeech.test_dataloaders(val_cuts)
+    # dev_dl = spgispeech.test_dataloaders(dev_cuts)
+    # val_dl = spgispeech.test_dataloaders(val_cuts)
+    ec53_dl = spgispeech.test_dataloaders(ec53_cuts)
 
-    test_sets = ["dev", "val"]
-    test_dl = [dev_dl, val_dl]
+    # test_sets = ["dev", "val"]
+    # test_dl = [dev_dl, val_dl]
+    test_sets = ["ec53"]
+    test_dl = [ec53_dl]
 
     for test_set, test_dl in zip(test_sets, test_dl):
         results_dict = decode_dataset(

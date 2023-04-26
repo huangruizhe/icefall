@@ -103,7 +103,7 @@ python pruned_transducer_stateless7_context/train.py \
   --start-epoch 2 \
   --num-epochs 30 \
   --is-bi-context-encoder true \
-  --n-distractors $n_distractors --n-distractors 0 --is-full-context true --start-batch 70000
+  --n-distractors $n_distractors --n-distractors 20 --keep-ratio 0.9 --is-full-context true --start-batch 84000
 
 # Stage1: --n-distractors 0 --is-full-context true
 # --start-batch 
@@ -114,8 +114,13 @@ python pruned_transducer_stateless7_context/train.py \
 # Stage1:
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10620028.out
 #    - https://tensorboard.dev/experiment/bysWCkLbRgS05diMHRtMww/
-# Continue with the 25-5 pretrained ASR model:
+#
+# Continue with the 25-5 pretrained ASR model: --n-distractors 0 --is-full-context true --start-batch 70000
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10622087.out
+#    - https://tensorboard.dev/experiment/bZD74akxTACl30J6XgWhnw/
+#
+# Add some distractors: --n-distractors 20 --keep-ratio 0.9 --is-full-context true --start-batch 84000
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10623174.out
 
 # Stage2 (common words 3k):
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10588947.out

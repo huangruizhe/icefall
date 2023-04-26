@@ -243,9 +243,9 @@ class ContextCollector(torch.utils.data.Dataset):
         distractors_cnt = n_distractors_each.sum()
 
         distractors = random.sample(  # without replacement
-            self.all_words,  # self.rare_words, 
+            self.rare_words,  # self.all_words,  # self.rare_words, 
             distractors_cnt
-        )  # TODO: actually the context should contain both rare and common words
+        )  # TODO: actually the context should contain both rare and common words -- well, we will remove all common words from the context
         # distractors = random.choices(  # random choices with replacement
         #     self.rare_words, 
         #     distractors_cnt,
