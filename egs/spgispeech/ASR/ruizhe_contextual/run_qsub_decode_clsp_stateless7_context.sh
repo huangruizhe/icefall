@@ -51,7 +51,7 @@ context_suffix="_slides"
 # context_suffix="_0.0"
 # context_suffix="_100recall"
 
-epochs=1
+epochs=16
 avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 
@@ -151,7 +151,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
             --beam-size 4 \
             --context-dir "data/rare_words" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --is-bi-context-encoder false --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 10 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
+            --keep-ratio 1.0 --is-bi-context-encoder true --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --context-dir "data/rare_words"
         # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --is-full-context true
@@ -187,7 +187,7 @@ fi
 #     10.25_46657     9.46_39159      58.08_1987      53.54_227       29.21_1068      14.10_288
 # --biased-lm-scale 9: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629243.out
 #     10.26_46695     9.47_39215      57.82_1978      52.36_222       29.02_1061      14.10_288
-# --biased-lm-scale 10: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629244.out
+# --biased-lm-scale 10: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629244.out <-- best
 #     10.28_46820     9.50_39342      57.50_1967      52.12_221       28.97_1059      14.05_287
 # --biased-lm-scale 11: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629303.out
 #     10.32_47007     9.54_39515      57.47_1966      52.12_221       28.99_1060      14.05_287
@@ -196,8 +196,8 @@ fi
 
 
 # Results (Neural biasing):
-
-
+# epoch 16: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3630354.out
+#     15.90_72375     14.73_60975     73.72_2522      66.98_284       45.32_1657      26.77_547
 
 
 # Neural biasing
