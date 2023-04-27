@@ -18,6 +18,7 @@
 import math
 from typing import List
 from pathlib import Path
+from collections import defaultdict
 
 import k2
 import kaldifst
@@ -485,13 +486,13 @@ class HMMTrainingGraphCompiler(object):
         #     max_token_id + 1 if sil_word is not None else max_token_id, self.sil_token_id
         # )  # add one for the <sil> token
         # hmm_topo = k2.ctc_topo(max_token_id, modified=False)
-        # hmm_topo = k2.ctc_topo(max_token_id, modified=True)
+        hmm_topo = k2.ctc_topo(max_token_id, modified=True)
         # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified(
         #     max_token_id, None
         # )
-        hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified_no_blk(
-            max_token_id, None
-        )
+        # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified_no_blk(
+        #     max_token_id, None
+        # )
         # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified_debug_for_hmm(
         #     max_token_id + 1 if sil_word is not None else max_token_id, 
         #     lexicon.token_table["#0"],
@@ -504,6 +505,80 @@ class HMMTrainingGraphCompiler(object):
 
         # For debugging purpose only
         self.lexicon = lexicon
+        self.start_tokens = {i for i in range(1, max_token_id + 1) if lexicon.token_table.get(i).startswith('▁')}
+
+        self.remove_intra_word_blk_flag = True
+        print(f"self.remove_intra_word_blk_flag={self.remove_intra_word_blk_flag}")
+
+    def _remove_intra_word_blk(self, decoding_graph, start_tokens, flag=True):
+        c_str = k2.to_str_simple(decoding_graph)
+        # print(c_str)
+
+        arcs = c_str.split("\n")
+        arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
+        final_state = int(arcs[-1])
+        arcs = arcs[:-1]
+        arcs = [tuple(map(int, a.split())) for a in arcs]
+        # print(arcs)
+        # print(final_state)
+
+        if flag is False:
+            new_arcs = arcs
+            new_arcs.append([final_state])
+
+            new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
+            new_arcs = [[str(i) for i in arc] for arc in new_arcs]
+            new_arcs = [" ".join(arc) for arc in new_arcs]
+            new_arcs = "\n".join(new_arcs)
+
+            fst = k2.Fsa.from_str(new_arcs, acceptor=False)
+            return fst
+
+        state_arcs = defaultdict(list)
+        for arc in arcs:
+            state_arcs[arc[0]].append(arc)
+
+        new_arcs = []
+        for state, arc_list in state_arcs.items():
+            eps_self_loop = None
+            should_keep_self_loop = False
+            for i, arc in enumerate(arc_list):
+                if arc[0] == arc[1] and arc[2] == arc[3] == 0:
+                    eps_self_loop = i
+                if arc[2] in start_tokens or arc[2] == -1:
+                    should_keep_self_loop = True
+            
+            if eps_self_loop is None or should_keep_self_loop:
+                new_arcs.extend(arc_list)
+            else:
+                # print(f"state {state} should remove an arc {eps_self_loop}: {arc_list[eps_self_loop]}")
+                new_arcs.extend(arc_list[:eps_self_loop])
+                new_arcs.extend(arc_list[eps_self_loop+1:])
+        new_arcs.append([final_state])
+
+        new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
+        new_arcs = [[str(i) for i in arc] for arc in new_arcs]
+        new_arcs = [" ".join(arc) for arc in new_arcs]
+        new_arcs = "\n".join(new_arcs)
+
+        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
+        return fst
+
+    def remove_intra_word_blk(self, decoding_graphs, start_tokens, flag=True):
+        if len(decoding_graphs.shape) == 2:
+            decoding_graphs = k2.create_fsa_vec([decoding_graphs])
+       
+        num_fsas = decoding_graphs.shape[0]
+        decoding_graph_list = []
+        for i in range(num_fsas):
+            decoding_graph_i = self._remove_intra_word_blk(decoding_graphs[i], start_tokens, flag=flag)
+            decoding_graph_i = k2.connect(decoding_graph_i)
+            decoding_graph_list.append(decoding_graph_i)
+        
+        decoding_graphs = k2.create_fsa_vec(decoding_graph_list)
+        decoding_graphs = decoding_graphs.to(self.device)
+        return decoding_graphs
+
 
     def compile(self, word_ids_list: List[List[int]]) -> k2.Fsa:
         """Build decoding graphs by composing ctc_topo with
@@ -562,6 +637,8 @@ class HMMTrainingGraphCompiler(object):
         #         decoding_graph_i = HMMTrainingGraphCompiler.minimize(decoding_graph_i, allow_nondet=True)
         #         decoding_graph_list.append(decoding_graph_i)
         #     decoding_graph = k2.create_fsa_vec(decoding_graph_list)
+
+        decoding_graph = self.remove_intra_word_blk(decoding_graph, self.start_tokens, flag=self.remove_intra_word_blk_flag)
 
         assert decoding_graph.requires_grad is False
 

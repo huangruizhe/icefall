@@ -1053,6 +1053,15 @@ def run(rank, world_size, args):
     else:
         # train_cuts = librispeech.train_clean_100_cuts()
         train_cuts = librispeech.train_clean_100_cuts_sample()
+
+        # from lhotse import CutSet
+        # cc = []
+        # for c in train_cuts:
+        #     text = c.supervisions[0].text
+        #     if len(text.split()) < 10:
+        #         cc.append(c)
+        # train_cuts = CutSet.from_cuts(cc)
+
         train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):

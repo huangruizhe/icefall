@@ -1,4 +1,4 @@
-mamba activate /home/rhuang/mambaforge/envs/efrat
+mamba activate /home/rhuang/mambaforge/envs/efrat2
 export PYTHONPATH=/export/fs04/a12/rhuang/k2/k2/python:$PYTHONPATH # for `import k2`
 export PYTHONPATH=/export/fs04/a12/rhuang/k2/build/temp.linux-x86_64-cpython-38/lib/:$PYTHONPATH # for `import _k2`
 # export PYTHONPATH=/export/fs04/a12/rhuang/icefall_align/:$PYTHONPATH
@@ -32,6 +32,10 @@ decoding_graph.aux_labels_sym = ctc_graph_compiler.lexicon.word_table
 decoding_graph[0].shape, decoding_graph[0].num_arcs
 decoding_graph[0].draw("aaa1.svg")
 
+texts[0] = "I CRY I LAUGH AND"
+word_ids_list = ctc_graph_compiler.texts_to_ids(texts)
+decoding_graph = ctc_graph_compiler.compile(word_ids_list)
+
 word_fsa.labels_sym = self.lexicon.word_table
 word_fsa[0].draw("aaa2.svg")
 
@@ -40,4 +44,12 @@ word_fsa[0].draw("aaa2.svg")
 bash ruizhe/prepare_sil.sh \
   --stage 0 --stop-stage 0
 
+# CTC vs hmm
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3629925.out  # hmm
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3629926.out  # ctc
+  - /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi_hmm/exp/exp_libri_100_ml/tensorboard1
+  - https://tensorboard.dev/experiment/hGZIGjQ5Q8adH2Rp7BkRhg/
 
+
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3630321.out  # hmm with added blk at the tail
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3630325.out  # continue training hmm from ctc

@@ -5,10 +5,11 @@
 #$ -j y -o ruizhe_hmm/log/$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l ram_free=16G,mem_free=16G,gpu=4,hostname=!b*&!c03*
+#$ -l ram_free=16G,mem_free=16G,gpu=2,hostname=!b*
 #$ -q 4gpu.q
 
 # &!octopod*
+ngpus=2
 
 #### Activate dev environments and call programs
 mamba activate /home/rhuang/mambaforge/envs/efrat2
@@ -25,7 +26,7 @@ echo "python: `which python`"
 #### Assign a free-GPU to your program (make sure -n matches the requested number of GPUs above)
 # source /home/gqin2/scripts/acquire-gpu 4
 
-ngpus=4 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
+ngpus=$ngpus # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
 free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
 [ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
 echo "Unable to get $ngpus GPUs"
@@ -77,7 +78,7 @@ python3 -c "import torch; print(torch.__version__)"
 
 # zipformer_hmm_ml on libri100
 ./zipformer_mmi_hmm/train.py \
-  --world-size 4 \
+  --world-size $ngpus \
   --master-port 12345 \
   --num-epochs 30 \
   --start-epoch 1 \
@@ -89,4 +90,4 @@ python3 -c "import torch; print(torch.__version__)"
   --warm-step 90000000000 \
   --num-workers 6 \
   --ctc-beam-size 15 \
-  --sil-modeling false
+  --sil-modeling false --start-epoch 13
