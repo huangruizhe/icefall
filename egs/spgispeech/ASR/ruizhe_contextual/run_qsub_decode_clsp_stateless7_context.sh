@@ -55,7 +55,7 @@ epochs=1
 avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 
-stage=1
+stage=2
 stop_stage=$stage
 echo "Stage: $stage"
 
@@ -151,7 +151,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
             --beam-size 4 \
             --context-dir "data/rare_words" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --is-bi-context-encoder false --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 12 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
+            --keep-ratio 1.0 --is-bi-context-encoder false --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 10 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --context-dir "data/rare_words"
         # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --is-full-context true
@@ -160,11 +160,11 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
         # --is-predefined true
         # --is-pretrained-context-encoder true
         # --no-wfst-lm-biasing false --biased-lm-scale 7
-        # --is-predefined true --no-wfst-lm-biasing false --biased-lm-scale 7 --no-encoder-biasing true --no-decoder-biasing true
+        # --is-predefined true --no-wfst-lm-biasing false --biased-lm-scale 10 --no-encoder-biasing true --no-decoder-biasing true
         # --is-bi-context-encoder false
         #
         # lm-biasing (cheating+distractors): --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 11 --n-distractors 100
-        # lm-biasing (slides): --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 3 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
+        # lm-biasing (slides): --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 10 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         #
         # neural-biasing (slides): --max-duration 10 --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
       done
@@ -175,6 +175,8 @@ fi
 # Results (LM biasing):
 # Baseline (modified beam search): 
 #     10.39_47315     9.53_39474      62.09_2124      57.78_245       33.62_1229      15.08_308
+# --biased-lm-scale 0: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629328.out
+#     10.39_47315     9.53_39472      62.09_2124      57.78_245       33.62_1229      15.08_308
 # --biased-lm-scale 5: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629239.out
 #     10.25_46664     9.44_39079      59.28_2028      54.25_230       30.14_1102      14.19_290
 # --biased-lm-scale 6: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629240.out
@@ -188,9 +190,9 @@ fi
 # --biased-lm-scale 10: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629244.out
 #     10.28_46820     9.50_39342      57.50_1967      52.12_221       28.97_1059      14.05_287
 # --biased-lm-scale 11: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629303.out
-#
+#     10.32_47007     9.54_39515      57.47_1966      52.12_221       28.99_1060      14.05_287
 # --biased-lm-scale 12: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629304.out
-#
+#     10.35_47141     9.57_39626      57.26_1959      52.59_223       28.91_1057      14.15_289
 
 
 # Results (Neural biasing):

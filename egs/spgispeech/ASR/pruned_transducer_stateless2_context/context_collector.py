@@ -21,6 +21,7 @@ class ContextCollector(torch.utils.data.Dataset):
         is_predefined: bool = False,
         keep_ratio: float = 1.0,
         is_full_context: bool = False,
+        is_single_context: bool = False,
         backoff_id: int = None,
         slides: Path = None,
     ):
@@ -32,6 +33,7 @@ class ContextCollector(torch.utils.data.Dataset):
         self.is_predefined = is_predefined
         self.keep_ratio = keep_ratio
         self.is_full_context = is_full_context   # use all words (rare or common) in the context
+        self.is_single_context = is_single_context   # use only a single rare word in the context
         # self.embedding_dim = self.bert_encoder.bert_model.config.hidden_size
         self.backoff_id = backoff_id
         self.slides = slides
@@ -42,6 +44,7 @@ class ContextCollector(torch.utils.data.Dataset):
             is_predefined={is_predefined},
             keep_ratio={keep_ratio},
             is_full_context={is_full_context},
+            is_single_context={is_single_context},
             bert_encoder={bert_encoder.name if bert_encoder is not None else None},
             slides={slides},
         """)
@@ -117,13 +120,17 @@ class ContextCollector(torch.utils.data.Dataset):
             oovs = [w for w in new_words if w not in _all_words]
             logging.info(f"Number of OOVs from predefined biasing lists: {len(oovs)}, Example: {random.sample(oovs, min(5, len(oovs)))}")
 
-            self.word_analysis(oovs)
+            # self.word_analysis(oovs)
 
         if self.sp is not None:
             all_words2pieces = sp.encode(self.all_words, out_type=int)  # a list of list of int
             all_words2pieces = {w: pieces for w, pieces in zip(self.all_words, all_words2pieces)}
             self.all_words2pieces.update(all_words2pieces)
             logging.info(f"len(self.all_words2pieces)={len(self.all_words2pieces)}")
+
+        if self.is_single_context:
+            assert self.is_full_context is False
+            assert self.keep_ratio == 1.0
 
         self.temp_dict = None
         self.temp_rare_words_list = None
@@ -196,7 +203,7 @@ class ContextCollector(torch.utils.data.Dataset):
     def discard_some_common_words(words, keep_ratio):
         pass
 
-    def _get_random_word_lists(self, batch):
+    def _get_random_word_lists(self, batch, no_distractors=False):
         if "text" in batch["supervisions"]:
             texts = batch["supervisions"]["text"]  # For training
         else:
@@ -209,6 +216,9 @@ class ContextCollector(torch.utils.data.Dataset):
             for word in text.split():
                 if self.is_full_context or word not in self.common_words:
                     rare_words.append(word)
+                
+                if len(rare_words) > 0 and self.is_single_context:
+                    rare_words = [random.choice(rare_words)]
 
                 if self.all_words2pieces is not None and word not in self.all_words2pieces:
                     new_words.append(word)
@@ -229,6 +239,9 @@ class ContextCollector(torch.utils.data.Dataset):
         if len(new_words) > 0:
             self.temp_dict = self.add_new_words(new_words, return_dict=True, silent=True)
 
+        if no_distractors:
+            return rare_words_list
+
         if self.ratio_distractors is not None:
             n_distractors_each = []
             for rare_words in rare_words_list:
@@ -244,7 +257,7 @@ class ContextCollector(torch.utils.data.Dataset):
 
         distractors = random.sample(  # without replacement
             self.rare_words,  # self.all_words,  # self.rare_words, 
-            distractors_cnt
+            distractors_cnt,
         )  # TODO: actually the context should contain both rare and common words -- well, we will remove all common words from the context
         # distractors = random.choices(  # random choices with replacement
         #     self.rare_words, 
@@ -418,3 +431,66 @@ class ContextCollector(torch.utils.data.Dataset):
             fsa_sizes.append(fsa_size)
 
         return fsa_list, fsa_sizes, num_words_per_utt
+
+    def get_context_word_list_shared(
+        self,
+        batch: dict,
+        n_distractors: int,
+    ):
+        """
+        Generate a single, shared context word list for all the utterances in a batch.
+        The words in one utterance can be distractors for others.
+        They will share the other distractors as well as the no-bias token.
+        The non-distractors will be masked.
+        """
+        shared_words = []
+        
+        rare_words_list = self._get_random_word_lists(batch, no_distractors=True)
+        for rare_words in rare_words_list:
+            shared_words.extend(rare_words)
+
+        distractors = random.sample(  # without replacement
+            self.rare_words,
+            min(len(self.rare_words), n_distractors),
+        )
+        shared_words.extend(distractors)
+        shared_words = list(set(shared_words))
+
+        # Mask the positive contexts, if needed. 
+        # To save space, use index to indicate which word should be masked
+        texts = batch["supervisions"]["text"]  # For training only
+        positive_mask_list = [[] for text in texts]
+        gt_words_list = [set(text.split()) for text in texts]
+        for i, w in enumerate(shared_words):
+            for j in range(len(texts)):
+                if w in gt_words_list[j]:
+                    positive_mask_list[j].append(i)
+        
+        if self.all_words2embeddings is None:
+            # Use SentencePiece to encode the words
+            rare_words_pieces = [self.all_words2pieces[w] if w in self.all_words2pieces else self.temp_dict[w] for w in shared_words]
+            max_pieces_len = 0
+            word_lengths = [len(pieces) for pieces in rare_words_pieces]
+            max_pieces_len = max(max_pieces_len, max(word_lengths))
+        else:  
+            # Use BERT embeddings here
+            rare_words_embeddings = [self.all_words2embeddings[w] if w in self.all_words2embeddings else self.temp_dict[w] for w in shared_words]
+
+        if self.all_words2embeddings is None:
+            # Use SentencePiece to encode the words
+            rare_words_pieces_padded = []
+            pad_token = 0
+            for pieces in rare_words_pieces:
+                rare_words_pieces_padded.append(pieces + [pad_token] * (max_pieces_len - len(pieces)))
+
+            rare_words_pieces_padded = torch.tensor(rare_words_pieces_padded, dtype=torch.int32)  # num_words * max_len
+            word_list = rare_words_pieces_padded
+        else:
+            # Use BERT embeddings here
+            word_lengths = None
+            word_list = torch.stack(rare_words_embeddings)  # num_words * dim
+        
+        return word_list, word_lengths, positive_mask_list
+
+
+

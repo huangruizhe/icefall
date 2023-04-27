@@ -50,9 +50,9 @@ exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c${n_distractors
 # exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c100_bert_stage1
 # exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_continue4
 
-exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1
+# exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1
 # exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2_10pt/
-# exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2
+exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2
 # exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_no_stage1
 
 
@@ -86,7 +86,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             --decoding-method $m \
             --context-dir "data/fbai-speech/is21_deep_bias/" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --no-encoder-biasing true --no-decoder-biasing true --is-full-context true --n-distractors 0
+            --keep-ratio 1.0 --is-predefined true --n-distractors 100
         # --is-full-context true
         # --n-distractors 0
         # --no-encoder-biasing true --no-decoder-biasing true

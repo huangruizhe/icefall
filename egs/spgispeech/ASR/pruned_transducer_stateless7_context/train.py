@@ -417,6 +417,20 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--relevance-learning",
+        type=str2bool,
+        default=False,
+        help="The model will learn about the positive samples in an upsampled way",
+    )
+
+    parser.add_argument(
+        "--irrelevance-learning",
+        type=str2bool,
+        default=False,
+        help="The model will learn massively about negative examples, where it needs to always choose <no-bias>",
+    )
+
     add_model_arguments(parser)
 
     return parser
