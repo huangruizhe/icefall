@@ -32,13 +32,21 @@ decoding_graph.aux_labels_sym = ctc_graph_compiler.lexicon.word_table
 decoding_graph[0].shape, decoding_graph[0].num_arcs
 decoding_graph[0].draw("aaa1.svg")
 
-texts[0] = "I CRY I LAUGH AND"
+texts[0] = "I CRYRY I LAUGH AND"
 word_ids_list = ctc_graph_compiler.texts_to_ids(texts)
-decoding_graph = ctc_graph_compiler.compile(word_ids_list)
+decoding_graph = ctc_graph_compiler.compile(word_ids_list, modified=True)
 
 word_fsa.labels_sym = self.lexicon.word_table
 word_fsa[0].draw("aaa2.svg")
 
+lexicon = Lexicon(params.lang_dir)
+supervisions['text'][0]
+decoding_graph.labels_sym = lexicon.token_table
+decoding_graph.aux_labels_sym = lexicon.token_table
+decoding_graph[0].shape, decoding_graph[0].num_arcs
+decoding_graph[0].draw("aaa1.svg")
+
+ctc_graph_compiler.remove_intra_word_blk_flag = True
 
 # Generate lexicon that contains sil
 bash ruizhe/prepare_sil.sh \
@@ -50,6 +58,23 @@ bash ruizhe/prepare_sil.sh \
   - /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi_hmm/exp/exp_libri_100_ml/tensorboard1
   - https://tensorboard.dev/experiment/hGZIGjQ5Q8adH2Rp7BkRhg/
 
+tensorboard dev upload --logdir . --description "`pwd`"
 
-/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3630321.out  # hmm with added blk at the tail
-/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3630325.out  # continue training hmm from ctc
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3630391.out  # hmm with added blk at the tail
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3630390.out  # continue training hmm from ctc
+
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3630765.out  # zipformer_ctc model
+
+# small sample
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631059.out  # zipformer_ctc model
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631061.out  # zipformer_hmm model
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631100.out  # zipformer_hmm model + sort cuts in an accending order
+  - /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/tensorboard1
+  - https://tensorboard.dev/experiment/C4cJMpdzSGCQRrGO5xA7Fw/#scalars
+
+# libri100
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631157.out  # zipformer_ctc model
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631156.out  # zipformer_hmm model
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631148.out  # zipformer_hmm model + sort cuts in an accending order
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631179.out  # zipformer_hmm model + continue training from ctc model
+

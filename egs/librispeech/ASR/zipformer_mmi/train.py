@@ -399,7 +399,7 @@ def get_params() -> AttributeDict:
             "ctc_beam_size": 10,
             "reduction": "sum",
             "use_double_scores": True,
-            "warm_step": 2000,
+            "warm_step": 2000000000,
             "env_info": get_env_info(),
         }
     )
@@ -622,7 +622,7 @@ def compute_loss(
         # Training with ctc loss
         # Works with a BPE model
         token_ids = ctc_graph_compiler.texts_to_ids(texts)
-        decoding_graph = ctc_graph_compiler.compile(token_ids)
+        decoding_graph = ctc_graph_compiler.compile(token_ids, modified=True)
         loss = k2.ctc_loss(
             decoding_graph=decoding_graph,
             dense_fsa_vec=dense_fsa_vec,
@@ -1008,6 +1008,9 @@ def run(rank, world_size, args):
         train_cuts = librispeech.train_all_shuf_cuts()
     else:
         train_cuts = librispeech.train_clean_100_cuts()
+        # train_cuts = librispeech.train_clean_100_cuts_sample()
+        # train_cuts = train_cuts.sort_by_duration(ascending=True)
+        train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds

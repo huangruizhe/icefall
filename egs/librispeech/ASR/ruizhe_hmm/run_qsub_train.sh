@@ -5,11 +5,14 @@
 #$ -j y -o ruizhe_hmm/log/$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l ram_free=16G,mem_free=16G,gpu=2,hostname=!b*
+#$ -l ram_free=16G,mem_free=16G,gpu=3,hostname=!b*&!c18*
 #$ -q 4gpu.q
 
 # &!octopod*
-ngpus=2
+ngpus=3
+
+# Check how many GPUs are available:
+# qstat -F gpu -q g.q | grep -A2 '.*@\(c\).* *lx-amd64 *[aA ]$'
 
 #### Activate dev environments and call programs
 mamba activate /home/rhuang/mambaforge/envs/efrat2
@@ -76,18 +79,32 @@ python3 -c "import torch; print(torch.__version__)"
 #   --full-libri false \
 #   --use-fp16 true
 
-# zipformer_hmm_ml on libri100
-./zipformer_mmi_hmm/train.py \
+# # zipformer_hmm_ml on libri100
+# ./zipformer_mmi_hmm/train.py \
+#   --world-size $ngpus \
+#   --master-port 12345 \
+#   --num-epochs 30 \
+#   --start-epoch 1 \
+#   --lang-dir data/lang_bpe_500 \
+#   --exp-dir zipformer_mmi_hmm/exp/exp_libri_100_ml  \
+#   --max-duration 200 \
+#   --full-libri false \
+#   --use-fp16 true \
+#   --warm-step 90000000000 \
+#   --num-workers 6 \
+#   --ctc-beam-size 15 \
+#   --sil-modeling false # --start-epoch 13
+
+
+./zipformer_mmi/train.py \
   --world-size $ngpus \
   --master-port 12345 \
   --num-epochs 30 \
   --start-epoch 1 \
   --lang-dir data/lang_bpe_500 \
-  --exp-dir zipformer_mmi_hmm/exp/exp_libri_100_ml  \
+  --exp-dir zipformer_mmi/exp/exp_libri_100_ml  \
   --max-duration 200 \
   --full-libri false \
   --use-fp16 true \
-  --warm-step 90000000000 \
-  --num-workers 6 \
-  --ctc-beam-size 15 \
-  --sil-modeling false --start-epoch 13
+  --save-every-n 20000 --start-epoch 3  # --shuffle false --bucketing-sampler false
+
