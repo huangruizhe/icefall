@@ -77,4 +77,18 @@ tensorboard dev upload --logdir . --description "`pwd`"
 /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631156.out  # zipformer_hmm model
 /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631148.out  # zipformer_hmm model + sort cuts in an accending order
 /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631179.out  # zipformer_hmm model + continue training from ctc model
+  - /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/tensorboard2
+  - https://tensorboard.dev/experiment/4QQaehLLRzG4DbU2zXumJg/
+
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631985.out  # zipformer_hmm model + lr 0.03
+/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3631986.out  # zipformer_hmm model + lr 0.01
+
+3631985 0.50186 train      rhuang       r     04/29/2023 02:35:58 4gpu.q@c24.clsp.jhu.edu            1        
+3631986 0.50186 train      rhuang       r     04/29/2023 02:36:36 4gpu.q@c19.clsp.jhu.edu            1        
+3632002 0.50121 train      rhuang       r     04/29/2023 03:08:26 4gpu.q@c11.clsp.jhu.edu            1        
+3631994 0.50184 train      rhuang       qw    04/29/2023 02:51:42                                    1        
+3632003 0.50121 train      rhuang       qw    04/29/2023 03:08:46                                    1        
+  - /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/tensorboard3
+  - https://tensorboard.dev/experiment/qmawEbC7QWKkrF8FkXDX7Q/
+
 

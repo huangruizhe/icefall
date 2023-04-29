@@ -160,7 +160,7 @@ class BpeCtcTrainingGraphCompiler(object):
 
         Args:
           piece_ids:
-            It is a list-of-list integer IDs.
+           IDs. It is a list-of-list integer 
           modified:
            See :func:`k2.ctc_graph` for its meaning.
         Return:

@@ -1009,7 +1009,7 @@ def run(rank, world_size, args):
     else:
         train_cuts = librispeech.train_clean_100_cuts()
         # train_cuts = librispeech.train_clean_100_cuts_sample()
-        # train_cuts = train_cuts.sort_by_duration(ascending=True)
+        train_cuts = train_cuts.sort_by_duration(ascending=True)
         train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):

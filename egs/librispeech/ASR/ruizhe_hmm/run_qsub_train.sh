@@ -8,6 +8,7 @@
 #$ -l ram_free=16G,mem_free=16G,gpu=3,hostname=!b*&!c18*
 #$ -q 4gpu.q
 
+# ,hostname=!b*&!c18*
 # &!octopod*
 ngpus=3
 
@@ -106,5 +107,7 @@ python3 -c "import torch; print(torch.__version__)"
   --max-duration 200 \
   --full-libri false \
   --use-fp16 true \
-  --save-every-n 20000 --start-epoch 3  # --shuffle false --bucketing-sampler false
+  --save-every-n 20000 --base-lr 0.02 --shuffle false --bucketing-sampler false
+# --shuffle false --bucketing-sampler false
+# --start-epoch 3
 
