@@ -399,7 +399,7 @@ def get_params() -> AttributeDict:
             "ctc_beam_size": 10,
             "reduction": "sum",
             "use_double_scores": True,
-            "warm_step": 2000000000,
+            "warm_step": 2000,
             "env_info": get_env_info(),
         }
     )
@@ -618,11 +618,12 @@ def compute_loss(
     )
 
     info = MetricsTracker()
-    if batch_idx_train < warm_step:
+    # if batch_idx_train < warm_step:
+    if True:
         # Training with ctc loss
         # Works with a BPE model
         token_ids = ctc_graph_compiler.texts_to_ids(texts)
-        decoding_graph = ctc_graph_compiler.compile(token_ids, modified=True)
+        decoding_graph = ctc_graph_compiler.compile(token_ids)
         loss = k2.ctc_loss(
             decoding_graph=decoding_graph,
             dense_fsa_vec=dense_fsa_vec,
@@ -901,7 +902,8 @@ def run(rank, world_size, args):
     params = get_params()
     params.update(vars(args))
     if params.full_libri is False:
-        params.valid_interval = 1600
+        # params.valid_interval = 1600
+        params.valid_interval = 200
 
     fix_random_seed(params.seed)
     if world_size > 1:
@@ -932,19 +934,21 @@ def run(rank, world_size, args):
         sos_token="<sos/eos>",
         eos_token="<sos/eos>",
     )
-    mmi_graph_compiler = MmiTrainingGraphCompiler(
-        params.lang_dir,
-        uniq_filename="lexicon.txt",
-        device=device,
-        oov="<UNK>",
-        sos_id=1,
-        eos_id=1,
-    )
+    # mmi_graph_compiler = MmiTrainingGraphCompiler(
+    #     params.lang_dir,
+    #     uniq_filename="lexicon.txt",
+    #     device=device,
+    #     oov="<UNK>",
+    #     sos_id=1,
+    #     eos_id=1,
+    # )
+    mmi_graph_compiler = None
 
     logging.info(params)
 
     logging.info("About to create model")
     model = get_ctc_model(params)
+    # print(model)
 
     num_param = sum([p.numel() for p in model.parameters()])
     logging.info(f"Number of model parameters: {num_param}")
@@ -1007,9 +1011,8 @@ def run(rank, world_size, args):
         # train_cuts += librispeech.train_other_500_cuts()
         train_cuts = librispeech.train_all_shuf_cuts()
     else:
-        train_cuts = librispeech.train_clean_100_cuts()
-        # train_cuts = librispeech.train_clean_100_cuts_sample()
-        train_cuts = train_cuts.sort_by_duration(ascending=True)
+        # train_cuts = librispeech.train_clean_100_cuts()
+        train_cuts = librispeech.train_clean_100_cuts_sample()
         train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):
@@ -1040,7 +1043,7 @@ def run(rank, world_size, args):
     valid_cuts += librispeech.dev_other_cuts()
     valid_dl = librispeech.valid_dataloaders(valid_cuts)
 
-    if not params.print_diagnostics:
+    if False and not params.print_diagnostics:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,

@@ -70,7 +70,7 @@ from torch.utils.tensorboard import SummaryWriter
 from zipformer import Zipformer
 
 from icefall import diagnostics
-from icefall.bpe_graph_compiler import BpeCtcTrainingGraphCompiler
+# from icefall.bpe_graph_compiler import BpeCtcTrainingGraphCompiler
 from icefall.checkpoint import load_checkpoint, remove_checkpoints
 from icefall.checkpoint import save_checkpoint as save_checkpoint_impl
 from icefall.checkpoint import (
@@ -82,7 +82,9 @@ from icefall.env import get_env_info
 from icefall.hooks import register_inf_check_hooks
 from icefall.lexicon import Lexicon, UniqLexicon
 from icefall.mmi import LFMMILoss
-from icefall.mmi_graph_compiler import MmiTrainingGraphCompiler
+# from icefall.mmi_graph_compiler import MmiTrainingGraphCompiler
+from icefall.hmm_graph_compiler import HMMTrainingGraphCompiler
+from icefall.hmm_mmi_graph_compiler import HMMMmiTrainingGraphCompiler
 from icefall.utils import (
     AttributeDict,
     MetricsTracker,
@@ -329,6 +331,27 @@ def get_parser():
         help="Whether to use half precision training.",
     )
 
+    parser.add_argument(
+        "--warm-step",
+        type=int,
+        default=2000,
+        help="",
+    )
+
+    parser.add_argument(
+        "--ctc-beam-size",
+        type=int,
+        default=10,
+        help="",
+    )
+
+    parser.add_argument(
+        "--sil-modeling",
+        type=str2bool,
+        default=True,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -396,10 +419,10 @@ def get_params() -> AttributeDict:
             "mmi_beam_size": 6,
             "den_scale": 1.0,
             # parameters for mmi loss
-            "ctc_beam_size": 10,
+            # "ctc_beam_size": 10,
             "reduction": "sum",
             "use_double_scores": True,
-            "warm_step": 2000000000,
+            # "warm_step": 2000,
             "env_info": get_env_info(),
         }
     )
@@ -562,8 +585,8 @@ def save_checkpoint(
 def compute_loss(
     params: AttributeDict,
     model: Union[nn.Module, DDP],
-    ctc_graph_compiler: BpeCtcTrainingGraphCompiler,
-    mmi_graph_compiler: MmiTrainingGraphCompiler,
+    ctc_graph_compiler: HMMTrainingGraphCompiler,
+    mmi_graph_compiler: HMMMmiTrainingGraphCompiler,
     batch: dict,
     is_training: bool,
 ) -> Tuple[Tensor, MetricsTracker]:
@@ -621,8 +644,8 @@ def compute_loss(
     if batch_idx_train < warm_step:
         # Training with ctc loss
         # Works with a BPE model
-        token_ids = ctc_graph_compiler.texts_to_ids(texts)
-        decoding_graph = ctc_graph_compiler.compile(token_ids, modified=True)
+        word_ids_list = ctc_graph_compiler.texts_to_ids(texts)
+        decoding_graph = ctc_graph_compiler.compile(word_ids_list)
         loss = k2.ctc_loss(
             decoding_graph=decoding_graph,
             dense_fsa_vec=dense_fsa_vec,
@@ -656,8 +679,8 @@ def compute_loss(
 def compute_validation_loss(
     params: AttributeDict,
     model: Union[nn.Module, DDP],
-    ctc_graph_compiler: BpeCtcTrainingGraphCompiler,
-    mmi_graph_compiler: MmiTrainingGraphCompiler,
+    ctc_graph_compiler: HMMTrainingGraphCompiler,
+    mmi_graph_compiler: HMMMmiTrainingGraphCompiler,
     valid_dl: torch.utils.data.DataLoader,
     world_size: int = 1,
 ) -> MetricsTracker:
@@ -694,8 +717,8 @@ def train_one_epoch(
     model: Union[nn.Module, DDP],
     optimizer: torch.optim.Optimizer,
     scheduler: LRSchedulerType,
-    ctc_graph_compiler: BpeCtcTrainingGraphCompiler,
-    mmi_graph_compiler: MmiTrainingGraphCompiler,
+    ctc_graph_compiler: HMMTrainingGraphCompiler,
+    mmi_graph_compiler: HMMMmiTrainingGraphCompiler,
     train_dl: torch.utils.data.DataLoader,
     valid_dl: torch.utils.data.DataLoader,
     scaler: GradScaler,
@@ -742,9 +765,11 @@ def train_one_epoch(
     tot_loss = MetricsTracker()
 
     cur_batch_idx = params.get("cur_batch_idx", 0)
+    # cur_batch_idx = 2000
 
     for batch_idx, batch in enumerate(train_dl):
         if batch_idx < cur_batch_idx:
+            # logging.info(f"Skipping: batch_idx={batch_idx}")
             continue
         cur_batch_idx = batch_idx
 
@@ -901,7 +926,7 @@ def run(rank, world_size, args):
     params = get_params()
     params.update(vars(args))
     if params.full_libri is False:
-        params.valid_interval = 1600
+        params.valid_interval = 200
 
     fix_random_seed(params.seed)
     if world_size > 1:
@@ -917,7 +942,7 @@ def run(rank, world_size, args):
 
     lexicon = Lexicon(params.lang_dir)
     max_token_id = max(lexicon.tokens)
-    num_classes = max_token_id + 1  # +1 for the blank
+    num_classes = max_token_id + 1 + 1  # +1 for the blank # +1 for the sil
     params.vocab_size = num_classes
 
     device = torch.device("cpu")
@@ -926,13 +951,32 @@ def run(rank, world_size, args):
     logging.info(f"Device: {device}")
 
     assert "lang_bpe" in str(params.lang_dir)
-    ctc_graph_compiler = BpeCtcTrainingGraphCompiler(
-        params.lang_dir,
-        device=device,
-        sos_token="<sos/eos>",
-        eos_token="<sos/eos>",
-    )
-    mmi_graph_compiler = MmiTrainingGraphCompiler(
+    # ctc_graph_compiler = BpeCtcTrainingGraphCompiler(
+    #     params.lang_dir,
+    #     device=device,
+    #     sos_token="<sos/eos>",
+    #     eos_token="<sos/eos>",
+    # )
+    if params.sil_modeling:
+        ctc_graph_compiler = HMMTrainingGraphCompiler(
+            Path(str(params.lang_dir) + "_sil"),
+            uniq_filename="lexicon.txt",
+            device=device,
+            sil_word="!SIL",
+            sil_token="<sil>",
+            nn_max_token_id=max(lexicon.tokens),
+        )
+    else:
+        ctc_graph_compiler = HMMTrainingGraphCompiler(
+            params.lang_dir,
+            uniq_filename="lexicon.txt",
+            device=device,
+            sil_word=None,
+            sil_token=None,
+            nn_max_token_id=None,
+        )
+
+    mmi_graph_compiler = HMMMmiTrainingGraphCompiler(
         params.lang_dir,
         uniq_filename="lexicon.txt",
         device=device,
@@ -1007,9 +1051,17 @@ def run(rank, world_size, args):
         # train_cuts += librispeech.train_other_500_cuts()
         train_cuts = librispeech.train_all_shuf_cuts()
     else:
-        train_cuts = librispeech.train_clean_100_cuts()
-        # train_cuts = librispeech.train_clean_100_cuts_sample()
-        train_cuts = train_cuts.sort_by_duration(ascending=True)
+        # train_cuts = librispeech.train_clean_100_cuts()
+        train_cuts = librispeech.train_clean_100_cuts_sample()
+
+        # from lhotse import CutSet
+        # cc = []
+        # for c in train_cuts:
+        #     text = c.supervisions[0].text
+        #     if len(text.split()) < 10:
+        #         cc.append(c)
+        # train_cuts = CutSet.from_cuts(cc)
+
         train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):
@@ -1040,7 +1092,7 @@ def run(rank, world_size, args):
     valid_cuts += librispeech.dev_other_cuts()
     valid_dl = librispeech.valid_dataloaders(valid_cuts)
 
-    if not params.print_diagnostics:
+    if False and not params.print_diagnostics:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,
@@ -1106,7 +1158,7 @@ def run(rank, world_size, args):
 def display_and_save_batch(
     batch: dict,
     params: AttributeDict,
-    graph_compiler: MmiTrainingGraphCompiler,
+    graph_compiler: HMMMmiTrainingGraphCompiler,
 ) -> None:
     """Display the batch statistics and save the batch into disk.
 
@@ -1138,8 +1190,8 @@ def scan_pessimistic_batches_for_oom(
     model: Union[nn.Module, DDP],
     train_dl: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
-    ctc_graph_compiler: BpeCtcTrainingGraphCompiler,
-    mmi_graph_compiler: MmiTrainingGraphCompiler,
+    ctc_graph_compiler: HMMTrainingGraphCompiler,
+    mmi_graph_compiler: HMMMmiTrainingGraphCompiler,
     params: AttributeDict,
 ):
     from lhotse.dataset import find_pessimistic_batches
