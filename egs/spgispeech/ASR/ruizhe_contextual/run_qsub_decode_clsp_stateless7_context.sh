@@ -51,7 +51,7 @@ context_suffix="_slides"
 # context_suffix="_0.0"
 # context_suffix="_100recall"
 
-epochs=16
+epochs=5
 avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 
@@ -140,7 +140,8 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
       for avg in $avgs; do
         # python -m pdb -c continue
         # python pruned_transducer_stateless7_context/decode.py \
-        python pruned_transducer_stateless7_context/decode_ec53.py \
+        # python pruned_transducer_stateless7_context/decode_ec53.py \
+        python pruned_transducer_stateless7_context/decode.py \
             --epoch $epoch \
             --avg $avg \
             --use-averaged-model $use_averaged_model \
@@ -151,7 +152,8 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
             --beam-size 4 \
             --context-dir "data/rare_words" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --is-bi-context-encoder true --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
+            --keep-ratio 1.0 --is-bi-context-encoder true --n-distractors 100 
+        # --is-bi-context-encoder true --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true --iter 248000
         # --context-dir "data/rare_words"
         # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --is-full-context true
@@ -198,6 +200,16 @@ fi
 # Results (Neural biasing):
 # epoch 16: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3630354.out
 #     15.90_72375     14.73_60975     73.72_2522      66.98_284       45.32_1657      26.77_547
+# iter-248000: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3631340.out
+#     20.53_93458     19.31_79966     78.14_2673      72.88_309       52.19_1908      40.19_821
+#
+# Neural biasing is huring WER, including dev WER with random distractors
+#   No biasing: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3631383.out
+#   Neural biasing: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3631382.out
+# Does it help improving training WER?
+# 
+
+
 
 
 # Neural biasing

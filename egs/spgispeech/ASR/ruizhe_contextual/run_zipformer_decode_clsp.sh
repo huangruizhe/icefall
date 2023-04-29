@@ -90,6 +90,7 @@ python pruned_transducer_stateless7/decode.py \
     --ngram-lm-scale $ngram_lm_scale
 
 
+# Modified beam search:
 # 3627958 0.50067 decode     rhuang       r     04/25/2023 02:01:05 g.q@c24.clsp.jhu.edu               1  598000-10  2.2/2.13 1.25h <-- rnnlm experiment
 # 3627967 0.50066 decode     rhuang       r     04/25/2023 02:16:43 g.q@octopod.clsp.jhu.edu           1  598000-5   2.21/2.14
 # 3627968 0.50066 decode     rhuang       r     04/25/2023 02:16:57 g.q@c22.clsp.jhu.edu               1  598000-1   2.23/2.18

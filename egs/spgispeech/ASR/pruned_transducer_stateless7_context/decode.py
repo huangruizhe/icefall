@@ -497,6 +497,13 @@ def get_parser():
         default=0.0,
         help="",
     )
+
+    parser.add_argument(
+        "--is-bi-context-encoder",
+        type=str2bool,
+        default=False,
+        help="",
+    )
     
     add_model_arguments(parser)
 
@@ -890,6 +897,8 @@ def rare_word_score(
     test_set_name: str,
     results_dict: Dict[str, List[Tuple[str, List[str], List[str]]]],
     cuts,
+    context_collector,
+    random_seed=0,
 ):
     from collections import namedtuple
     from score import main as score_main
@@ -901,11 +910,27 @@ def rare_word_score(
     cuts = CutSet.from_cuts(cuts)
 
     args = namedtuple('A', ['refs', 'hyps', 'lenient'])
-    if params.n_distractors > 0:
-        args.refs = params.context_dir / f"ref/{test_set_name}.biasing_{params.n_distractors}.tsv"
-    else:
-        args.refs = params.context_dir / f"ref/{test_set_name}.biasing_100.tsv"
+    # if params.n_distractors > 0:
+    #     args.refs = params.context_dir / f"ref/{test_set_name}.biasing_{params.n_distractors}.tsv"
+    # else:
+    #     args.refs = params.context_dir / f"ref/{test_set_name}.biasing_100.tsv"
     args.lenient = True
+
+    import random
+    random.seed(random_seed)
+
+    refs = {}
+    print_n_samples = 10
+    for c in cuts:
+        uttid = c.supervisions[0].id
+        ref = c.supervisions[0].text
+        batch = {"supervisions": {"text": [ref]}}
+        biasing_words = context_collector._get_random_word_lists(batch, no_distractors=True)
+        refs[uttid] = {"text": ref, "biasing_words": biasing_words[0]}
+        if print_n_samples > 0:
+            print(f"{uttid} {refs[uttid]}")
+            print_n_samples -= 1
+    args.refs = refs
 
     for key, results in results_dict.items():
         print()
@@ -1187,30 +1212,34 @@ def main():
 
     # we need cut ids to display recognition results.
     args.return_cuts = True
-    args.on_the_fly_feats = True
+    # args.on_the_fly_feats = True
     spgispeech = SPGISpeechAsrDataModule(args)
 
-    # dev_cuts = spgispeech.dev_cuts()
+    dev_cuts = spgispeech.dev_cuts()
     # val_cuts = spgispeech.val_cuts()
 
-    ec53_cuts_file = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
-    logging.info(f"Loading cuts from: {ec53_cuts_file}")
-    ec53_cuts = CutSet.from_file(ec53_cuts_file)
-    ec53_cuts.describe()
+    # dev_cuts = dev_cuts.sample(n_cuts=500)
+
+    # ec53_cuts_file = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
+    # logging.info(f"Loading cuts from: {ec53_cuts_file}")
+    # ec53_cuts = CutSet.from_file(ec53_cuts_file)
+    # ec53_cuts.describe()
 
     # from lhotse.utils import fix_random_seed
     # fix_random_seed(12358)
     # ec53_cuts = ec53_cuts.sample(n_cuts=500)
     # ec53_cuts.describe()
 
-    # dev_dl = spgispeech.test_dataloaders(dev_cuts)
+    dev_dl = spgispeech.test_dataloaders(dev_cuts)
     # val_dl = spgispeech.test_dataloaders(val_cuts)
-    ec53_dl = spgispeech.test_dataloaders(ec53_cuts)
+    # ec53_dl = spgispeech.test_dataloaders(ec53_cuts)
 
     # test_sets = ["dev", "val"]
     # test_dl = [dev_dl, val_dl]
-    test_sets = ["ec53"]
-    test_dl = [ec53_dl]
+    test_sets = ["dev"]
+    test_dl = [dev_dl]
+    # test_sets = ["ec53"]
+    # test_dl = [ec53_dl]
 
     for test_set, test_dl in zip(test_sets, test_dl):
         results_dict = decode_dataset(
@@ -1232,12 +1261,13 @@ def main():
             results_dict=results_dict,
         )
 
-        # rare_word_score(
-        #     params=params,
-        #     test_set_name=test_set,
-        #     results_dict=results_dict,
-        #     cuts=test_dl.sampler.cuts,
-        # )
+        rare_word_score(
+            params=params,
+            test_set_name=test_set,
+            results_dict=results_dict,
+            cuts=test_dl.sampler.cuts,
+            context_collector=context_collector,
+        )
 
     logging.info("Done!")
 

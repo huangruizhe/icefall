@@ -214,12 +214,16 @@ class EditDistance(object):
 
 def main(args):
     refs = {}
-    with open(args.refs, "r") as f:
-        for line in f:
-            ary = line.strip().split("\t")
-            uttid, ref, biasing_words = ary[0], ary[1], set(json.loads(ary[2]))
-            refs[uttid] = {"text": ref, "biasing_words": biasing_words}
-    logger.info("Loaded %d reference utts from %s", len(refs), args.refs)
+    if type(args.hyps) is str:
+        with open(args.refs, "r") as f:
+            for line in f:
+                ary = line.strip().split("\t")
+                uttid, ref, biasing_words = ary[0], ary[1], set(json.loads(ary[2]))
+                refs[uttid] = {"text": ref, "biasing_words": biasing_words}
+        logger.info("Loaded %d reference utts from %s", len(refs), args.refs)
+    else:
+        refs = args.refs
+        logger.info("Loaded %d reference utts", len(refs))
 
     hyps = {}
     if type(args.hyps) is str:
