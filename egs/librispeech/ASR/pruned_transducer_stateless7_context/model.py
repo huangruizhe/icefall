@@ -83,15 +83,14 @@ class Transducer(nn.Module):
         self.no_encoder_biasing = None
         self.no_decoder_biasing = None
         self.no_wfst_lm_biasing = None
+        self.params = None
 
     def forward(
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
         y: k2.RaggedTensor,
-        word_list: torch.Tensor,
-        word_lengths: Union[torch.Tensor, List[int]],
-        num_words_per_utt: Union[torch.Tensor, List[int]],
+        contexts: dict,
         prune_range: int = 5,
         am_scale: float = 0.0,
         lm_scale: float = 0.0,
@@ -137,21 +136,20 @@ class Transducer(nn.Module):
 
         assert x.size(0) == x_lens.size(0) == y.dim0
 
-        assert x.size(0) == len(num_words_per_utt)
-        assert word_lengths is None or word_list.size(0) == len(word_lengths)
-
         encoder_out, x_lens = self.encoder(x, x_lens)
         assert torch.all(x_lens > 0)
 
-        contexts, contexts_mask = self.context_encoder.embed_contexts(
-            word_list,
-            word_lengths,
-            num_words_per_utt,
+        contexts_h, contexts_mask = self.context_encoder.embed_contexts(
+            contexts
         )
-        # assert x.size(0) == contexts.size(0) == contexts_mask.size(0)
-        # assert contexts.ndim == 3
-        # assert contexts_mask.ndim == 2
-        encoder_biasing_out, attn = self.encoder_biasing_adapter.forward(encoder_out, contexts, contexts_mask)
+        # assert x.size(0) == contexts_h.size(0) == contexts_mask.size(0)
+        # assert contexts_h.ndim == 3
+        # assert contexts_h.ndim == 2
+        if self.params.irrelevance_learning:
+            need_weights = True
+        else:
+            need_weights = False
+        encoder_biasing_out, attn_enc = self.encoder_biasing_adapter.forward(encoder_out, contexts_h, contexts_mask, need_weights=need_weights)
         encoder_out = encoder_out + encoder_biasing_out
 
         # Now for the decoder, i.e., the prediction network
@@ -168,16 +166,14 @@ class Transducer(nn.Module):
         decoder_out = self.decoder(sos_y_padded)
 
         if self.context_encoder.bi_encoders:
-            contexts_dec, contexts_dec_mask = self.context_encoder.embed_contexts(
-                word_list,
-                word_lengths,
-                num_words_per_utt,
+            contexts_dec_h, contexts_dec_mask = self.context_encoder.embed_contexts(
+                contexts,
                 is_encoder_side=False,
             )
         else:
-            contexts_dec, contexts_dec_mask = contexts, contexts_mask
+            contexts_dec_h, contexts_dec_mask = contexts, contexts_mask
 
-        decoder_biasing_out, attn = self.decoder_biasing_adapter.forward(decoder_out, contexts_dec, contexts_dec_mask)
+        decoder_biasing_out, attn_dec = self.decoder_biasing_adapter.forward(decoder_out, contexts_dec_h, contexts_dec_mask, need_weights=need_weights)
         decoder_out = decoder_out + decoder_biasing_out
 
         # Note: y does not start with SOS

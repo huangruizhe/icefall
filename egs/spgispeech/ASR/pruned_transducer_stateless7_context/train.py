@@ -796,15 +796,19 @@ def compute_loss(
     word_list = word_list.to(device)
     # word_lengths = word_lengths.to(device)
     # num_words_per_utt = num_words_per_utt.to(device)
+    contexts = {
+        "mode": "get_context_word_list",
+        "word_list": word_list, 
+        "word_lengths": word_lengths, 
+        "num_words_per_utt": num_words_per_utt,
+    }
 
     with torch.set_grad_enabled(is_training):
         simple_loss, pruned_loss = model(
             x=feature,
             x_lens=feature_lens,
             y=y,
-            word_list=word_list, 
-            word_lengths=word_lengths, 
-            num_words_per_utt=num_words_per_utt,
+            contexts=contexts,
             prune_range=params.prune_range,
             am_scale=params.am_scale,
             lm_scale=params.lm_scale,
@@ -1138,6 +1142,8 @@ def run(rank, world_size, args):
 
     logging.info("About to create model")
     model = get_transducer_model(params)
+
+    model.params = params
 
     # Freeze the parameters of the ASR model
     for param in itertools.chain(

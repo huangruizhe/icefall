@@ -1,1 +1,1 @@
-/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/pruned_transducer_stateless7_context/biasing_module.py
+../../../librispeech/ASR/pruned_transducer_stateless7_context/biasing_module.py

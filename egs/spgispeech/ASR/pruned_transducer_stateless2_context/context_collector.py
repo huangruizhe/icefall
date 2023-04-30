@@ -436,6 +436,7 @@ class ContextCollector(torch.utils.data.Dataset):
         self,
         batch: dict,
         n_distractors: int,
+        mask_positive: bool = False,
     ):
         """
         Generate a single, shared context word list for all the utterances in a batch.
@@ -460,11 +461,12 @@ class ContextCollector(torch.utils.data.Dataset):
         # To save space, use index to indicate which word should be masked
         texts = batch["supervisions"]["text"]  # For training only
         positive_mask_list = [[] for text in texts]
-        gt_words_list = [set(text.split()) for text in texts]
-        for i, w in enumerate(shared_words):
-            for j in range(len(texts)):
-                if w in gt_words_list[j]:
-                    positive_mask_list[j].append(i)
+        if mask_positive:
+            gt_words_list = [set(text.split()) for text in texts]
+            for i, w in enumerate(shared_words):
+                for j in range(len(texts)):
+                    if w in gt_words_list[j]:
+                        positive_mask_list[j].append(i)
         
         if self.all_words2embeddings is None:
             # Use SentencePiece to encode the words
@@ -492,5 +494,5 @@ class ContextCollector(torch.utils.data.Dataset):
         
         return word_list, word_lengths, positive_mask_list
 
-
+    
 
