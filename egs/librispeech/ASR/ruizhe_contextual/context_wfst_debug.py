@@ -70,6 +70,8 @@ def main(params):
         context_collector.get_context_word_wfst(batch)
     
     logging.info(f"{uid}: {fsa_sizes}")
+    text_words = set(text.split())
+    logging.info(f"{uid} rare words: {[w for w in text_words if w in context_collector.rare_words]}")
 
     biased_lm = BiasedNgramLm(
         fst=fsa_list[0], 
