@@ -602,19 +602,32 @@ def decode_one_batch(
         ]
         model.scratch_space["biased_lm_list"] = biased_lm_list
 
-    if not model.no_encoder_biasing:
+    if not model.no_encoder_biasing or not model.no_decoder_biasing:
         word_list, word_lengths, num_words_per_utt = \
             context_collector.get_context_word_list(batch)
         word_list = word_list.to(device)
-        contexts, contexts_mask = model.context_encoder.embed_contexts(
-            word_list,
-            word_lengths,
-            num_words_per_utt,
+        contexts = {
+            "mode": "get_context_word_list",
+            "word_list": word_list, 
+            "word_lengths": word_lengths, 
+            "num_words_per_utt": num_words_per_utt,
+        }
+        contexts_h, contexts_mask = model.context_encoder.embed_contexts(
+            contexts,
         )
-        model.scratch_space["contexts"] = contexts
-        model.scratch_space["contexts_mask"] = contexts_mask
 
-        encoder_biasing_out, attn = model.encoder_biasing_adapter.forward(encoder_out, contexts, contexts_mask)
+        if model.context_encoder.bi_encoders:
+            contexts_dec_h, contexts_dec_mask = model.context_encoder.embed_contexts(
+                contexts,
+                is_encoder_side=False,
+            )
+        else:
+            contexts_dec_h, contexts_dec_mask = contexts_h, contexts_mask
+        model.scratch_space["contexts_h"] = contexts_dec_h
+        model.scratch_space["contexts_mask"] = contexts_dec_mask
+
+    if not model.no_encoder_biasing:
+        encoder_biasing_out, attn = model.encoder_biasing_adapter.forward(encoder_out, contexts_h, contexts_mask)
         encoder_out = encoder_out + encoder_biasing_out
 
     hyps = []
@@ -1017,8 +1030,10 @@ def main():
     if not params.no_decoder_biasing:
         params.suffix += f"-decoder-biasing"
     
-    import time
-    timestr = time.strftime("%Y%m%d-%H%M%S")
+    # import time
+    # timestr = time.strftime("%Y%m%d-%H%M%S")
+    from datetime import datetime
+    timestr = datetime.utcnow().strftime('%Y%m%d-%H%M%S-%f')[:-3]
     params.suffix += f"-{timestr}"
 
     setup_logger(f"{params.res_dir}/log-decode-{params.suffix}")
@@ -1081,6 +1096,7 @@ def main():
     model.no_encoder_biasing = params.no_encoder_biasing
     model.no_decoder_biasing = params.no_decoder_biasing
     model.no_wfst_lm_biasing = params.no_wfst_lm_biasing
+    model.params = params
 
     if not params.use_averaged_model:
         if params.iter > 0:
@@ -1212,34 +1228,36 @@ def main():
 
     # we need cut ids to display recognition results.
     args.return_cuts = True
-    # args.on_the_fly_feats = True
+    args.on_the_fly_feats = True
     spgispeech = SPGISpeechAsrDataModule(args)
 
-    dev_cuts = spgispeech.dev_cuts()
+    # dev_cuts = spgispeech.dev_cuts()
     # val_cuts = spgispeech.val_cuts()
 
     # dev_cuts = dev_cuts.sample(n_cuts=500)
 
-    # ec53_cuts_file = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
-    # logging.info(f"Loading cuts from: {ec53_cuts_file}")
-    # ec53_cuts = CutSet.from_file(ec53_cuts_file)
-    # ec53_cuts.describe()
+    ec53_cuts_file = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
+    logging.info(f"Loading cuts from: {ec53_cuts_file}")
+    ec53_cuts = CutSet.from_file(ec53_cuts_file)
+    ec53_cuts.describe()
 
     # from lhotse.utils import fix_random_seed
     # fix_random_seed(12358)
     # ec53_cuts = ec53_cuts.sample(n_cuts=500)
     # ec53_cuts.describe()
 
-    dev_dl = spgispeech.test_dataloaders(dev_cuts)
+    # dev_dl = spgispeech.test_dataloaders(dev_cuts)
     # val_dl = spgispeech.test_dataloaders(val_cuts)
-    # ec53_dl = spgispeech.test_dataloaders(ec53_cuts)
+    ec53_dl = spgispeech.test_dataloaders(ec53_cuts)
 
     # test_sets = ["dev", "val"]
     # test_dl = [dev_dl, val_dl]
-    test_sets = ["dev"]
-    test_dl = [dev_dl]
-    # test_sets = ["ec53"]
-    # test_dl = [ec53_dl]
+    # test_sets = ["dev"]
+    # test_dl = [dev_dl]
+    # test_sets = ["val"]
+    # test_dl = [val_dl]
+    test_sets = ["ec53"]
+    test_dl = [ec53_dl]
 
     for test_set, test_dl in zip(test_sets, test_dl):
         results_dict = decode_dataset(

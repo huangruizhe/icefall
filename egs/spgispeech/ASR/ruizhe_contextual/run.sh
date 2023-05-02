@@ -180,3 +180,37 @@ mv /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts
 
 scp -r /exp/rhuang/icefall_latest/egs/spgispeech/ASR/data/fbank/feats_{dev,val}.lca \
   rhuang@login.clsp.jhu.edu:/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/fbank/.
+
+##### Rare word WER instead of entity WER
+# set up envs in: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/upsampling.sh
+part="val"  # dev  # val
+python /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/context_collector_test.py \
+  --cuts-file-name "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_${part}.jsonl.gz" \
+> data/rare_words/ref/biasing_list_${part}.txt
+
+part="ec53"
+ec53_cuts="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
+python /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/context_collector_test.py \
+  --cuts-file-name $ec53_cuts \
+> data/rare_words/ref/biasing_list_${part}.txt
+
+cd /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/
+
+# hyp_in=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/recogs-ec53-epoch-21-avg-1-modified_beam_search-beam-size-4-encoder-biasing-decoder-biasing-20230430-051101.txt
+# hyp=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/recogs-ec53-epoch-21-avg-1-modified_beam_search-beam-size-4-encoder-biasing-decoder-biasing-20230430-051101.hyp.txt
+hyp_in=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/recogs-ec53-epoch-1-avg-9-modified_beam_search-beam-size-4-20230426-121352.txt
+hyp=${hyp_in%".txt"}.hyp.txt
+part="ec53"
+ref=data/rare_words/ref/biasing_list_${part}.txt
+python ruizhe_contextual/recogs_to_text.py \
+  --cuts $ec53_cuts \
+  --input $hyp_in \
+  --out $hyp
+
+wc $ref $hyp
+python pruned_transducer_stateless7_context/score.py \
+  --refs $ref \
+  --hyps $hyp
+
+# no biasing: 10.59(9.22/23.24)
+# slides:     11.09(9.57/25.16)

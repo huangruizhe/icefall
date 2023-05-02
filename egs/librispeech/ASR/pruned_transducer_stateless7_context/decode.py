@@ -590,15 +590,19 @@ def decode_one_batch(
         word_list, word_lengths, num_words_per_utt = \
             context_collector.get_context_word_list(batch)
         word_list = word_list.to(device)
-        contexts, contexts_mask = model.context_encoder.embed_contexts(
-            word_list,
-            word_lengths,
-            num_words_per_utt,
+        contexts = {
+            "mode": "get_context_word_list",
+            "word_list": word_list, 
+            "word_lengths": word_lengths, 
+            "num_words_per_utt": num_words_per_utt,
+        }
+        contexts_h, contexts_mask = model.context_encoder.embed_contexts(
+            contexts,
         )
-        model.scratch_space["contexts"] = contexts
+        model.scratch_space["contexts_h"] = contexts_h
         model.scratch_space["contexts_mask"] = contexts_mask
 
-        encoder_biasing_out, attn = model.encoder_biasing_adapter.forward(encoder_out, contexts, contexts_mask)
+        encoder_biasing_out, attn = model.encoder_biasing_adapter.forward(encoder_out, contexts_h, contexts_mask)
         encoder_out = encoder_out + encoder_biasing_out
 
     hyps = []
@@ -989,8 +993,10 @@ def main():
     if params.use_averaged_model:
         params.suffix += "-use-averaged-model"
     
-    import time
-    timestr = time.strftime("%Y%m%d-%H%M%S")
+    # import time
+    # timestr = time.strftime("%Y%m%d-%H%M%S")
+    from datetime import datetime
+    timestr = datetime.utcnow().strftime('%Y%m%d-%H%M%S-%f')[:-3]
     params.suffix += f"-{timestr}"
 
     setup_logger(f"{params.res_dir}/log-decode-{params.suffix}")

@@ -171,7 +171,7 @@ class Transducer(nn.Module):
                 is_encoder_side=False,
             )
         else:
-            contexts_dec_h, contexts_dec_mask = contexts, contexts_mask
+            contexts_dec_h, contexts_dec_mask = contexts_h, contexts_mask
 
         decoder_biasing_out, attn_dec = self.decoder_biasing_adapter.forward(decoder_out, contexts_dec_h, contexts_dec_mask, need_weights=need_weights)
         decoder_out = decoder_out + decoder_biasing_out

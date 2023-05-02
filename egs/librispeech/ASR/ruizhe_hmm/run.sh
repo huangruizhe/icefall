@@ -90,5 +90,8 @@ tensorboard dev upload --logdir . --description "`pwd`"
 3632003 0.50121 train      rhuang       qw    04/29/2023 03:08:46                                    1        
   - /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/tensorboard3
   - https://tensorboard.dev/experiment/qmawEbC7QWKkrF8FkXDX7Q/
+  - https://tensorboard.dev/experiment/9fKKENaiRiyBk8EdurzekQ/
+
+
 
 

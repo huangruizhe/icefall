@@ -99,6 +99,8 @@ class ContextCollector(torch.utils.data.Dataset):
                 biasing_list = read_ref_biasing_list(filename)
                 biasing_list2 = {word: weight for word, weight in biasing_list.items() if word not in self.common_words}
                 # biasing_list2 = {word: weight for word, weight in biasing_list.items() if word in self.all_words}  # only contain "known" words
+                # biasing_list2 = {word: weight for word, weight in biasing_list.items() if word in self.all_words and word not in self.common_words}
+                # biasing_list2 = biasing_list
 
                 base_name = filename.split("/")[-1]
                 base_name = base_name.replace(".txt", "")  # one ec
@@ -231,7 +233,20 @@ class ContextCollector(torch.utils.data.Dataset):
             rare_words = list(set(rare_words))  # deduplication
 
             if self.keep_ratio < 1.0 and len(rare_words) > 0:
-                rare_words = random.sample(rare_words, int(len(rare_words) * self.keep_ratio))
+                # method 1:
+                keep_size = int(len(rare_words) * self.keep_ratio)
+                if keep_size > 0:
+                    rare_words = random.sample(rare_words, keep_size)
+                else:
+                    rare_words = []
+                
+                # # method 2:
+                # x = np.random.rand(len(rare_words))
+                # new_rare_words = []
+                # for xi in range(len(rare_words)):
+                #     if x[xi] < self.keep_ratio:
+                #         new_rare_words.append(rare_words[xi])
+                # rare_words = new_rare_words
 
             rare_words_list.append(rare_words)
         

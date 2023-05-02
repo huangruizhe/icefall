@@ -618,20 +618,33 @@ def decode_one_batch(
         word_list, word_lengths, num_words_per_utt = \
             context_collector.get_context_word_list(_batch)
         word_list = word_list.to(device)
-        contexts_, contexts_mask_ = model.context_encoder.embed_contexts(
-            word_list,
-            word_lengths,
-            num_words_per_utt,
+        contexts = {
+            "mode": "get_context_word_list",
+            "word_list": word_list, 
+            "word_lengths": word_lengths, 
+            "num_words_per_utt": num_words_per_utt,
+        }
+        contexts_h_, contexts_mask_ = model.context_encoder.embed_contexts(
+            contexts,
         )
 
-        contexts = contexts_.expand(batch_size, -1, -1)
+        contexts_h = contexts_h_.expand(batch_size, -1, -1)
         contexts_mask = contexts_mask_.expand(batch_size, -1)
 
-        model.scratch_space["contexts"] = contexts
-        model.scratch_space["contexts_mask"] = contexts_mask
+        if model.context_encoder.bi_encoders:
+            contexts_dec_h_, contexts_dec_mask_ = model.context_encoder.embed_contexts(
+                contexts,
+                is_encoder_side=False,
+            )
+            contexts_dec_h = contexts_dec_h_.expand(batch_size, -1, -1)
+            contexts_dec_mask = contexts_dec_mask_.expand(batch_size, -1)
+        else:
+            contexts_dec_h, contexts_dec_mask = contexts_h, contexts_mask
+        model.scratch_space["contexts_h"] = contexts_dec_h
+        model.scratch_space["contexts_mask"] = contexts_dec_mask
 
     if not model.no_encoder_biasing:
-        encoder_biasing_out, attn = model.encoder_biasing_adapter.forward(encoder_out, contexts, contexts_mask)
+        encoder_biasing_out, attn = model.encoder_biasing_adapter.forward(encoder_out, contexts_h, contexts_mask)
         encoder_out = encoder_out + encoder_biasing_out
 
     hyps = []
@@ -1016,8 +1029,10 @@ def main():
     if not params.no_decoder_biasing:
         params.suffix += f"-decoder-biasing"
     
-    import time
-    timestr = time.strftime("%Y%m%d-%H%M%S")
+    # import time
+    # timestr = time.strftime("%Y%m%d-%H%M%S")
+    from datetime import datetime
+    timestr = datetime.utcnow().strftime('%Y%m%d-%H%M%S-%f')[:-3]
     params.suffix += f"-{timestr}"
 
     setup_logger(f"{params.res_dir}/log-decode-{params.suffix}")
@@ -1080,6 +1095,7 @@ def main():
     model.no_encoder_biasing = params.no_encoder_biasing
     model.no_decoder_biasing = params.no_decoder_biasing
     model.no_wfst_lm_biasing = params.no_wfst_lm_biasing
+    model.params = params
 
     if not params.use_averaged_model:
         if params.iter > 0:

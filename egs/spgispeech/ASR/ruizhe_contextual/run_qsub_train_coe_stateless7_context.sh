@@ -66,6 +66,7 @@ max_duration=1000
 # Stage1: Continue training from pretrained.pt
 path_to_pretrained_asr_model="/exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7/"
 exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c${n_distractors}_stage1
+exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c${n_distractors}_stage1_single_enc
 mkdir -p $exp_dir
 if [ ! -f $exp_dir/epoch-1.pt ]; then
   ln -s $path_to_pretrained_asr_model/exp_500_norm/pretrained.pt $exp_dir/epoch-1.pt
@@ -102,15 +103,18 @@ python pruned_transducer_stateless7_context/train.py \
   --keep-ratio 1.0 \
   --start-epoch 2 \
   --num-epochs 30 \
-  --is-bi-context-encoder true \
-  --n-distractors $n_distractors --n-distractors 20 --keep-ratio 0.9 --is-full-context true --start-batch 84000
+  --is-bi-context-encoder false \
+  --n-distractors $n_distractors --start-epoch 9 --upsample-N 3
 
 # Stage1: --n-distractors 0 --is-full-context true
 # --start-batch 
 # --is-pretrained-context-encoder true
+# --is-bi-context-encoder true
+# --n-distractors $n_distractors --n-distractors 20 --keep-ratio 0.9 --is-full-context true --start-batch 84000
 
 # tensorboard dev upload --logdir . --description "`pwd`"
 
+#### Bi-context encoder ####
 # Stage1:
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10620028.out
 #    - https://tensorboard.dev/experiment/bysWCkLbRgS05diMHRtMww/
@@ -129,6 +133,16 @@ python pruned_transducer_stateless7_context/train.py \
 # Stage2 (common words 3k): --n-distractors $n_distractors --start-epoch 13 --master-port 12365
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10623668.out
 #    - https://tensorboard.dev/experiment/bV0GEo7QSb6pFoSqzIjDyg/
-# 
+#    - https://tensorboard.dev/experiment/Gb9QBc8NQEqKKUj31DUwAA/
 
 # Stage3 (common words 3k + keep_ratio = 0.3~0.8):
+
+
+#### Single context encoder ####
+# Stage1:
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10628133.out
+#   - https://tensorboard.dev/experiment/PFxBHLRYSeGywUqL8JplGg/
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10629125.out
+#   - https://tensorboard.dev/experiment/5WQmaW1tRGWmIl4HyLy4sA/
+
+

@@ -75,19 +75,19 @@ def main(params):
         path_is21_deep_bias=params.context_dir,
         sp=sp,
         is_predefined=True,
-        n_distractors=1000,
+        n_distractors=500,
         keep_ratio=1.0,
         is_full_context=False,
     )
 
-    context_generator = ContextGenerator(
-        path_is21_deep_bias=params.context_dir,
-        sp=sp,
-        is_predefined=True,
-        n_distractors=100,
-        keep_ratio=1.0,
-        is_full_context=False,
-    )
+    # context_generator = ContextGenerator(
+    #     path_is21_deep_bias=params.context_dir,
+    #     sp=sp,
+    #     is_predefined=True,
+    #     n_distractors=100,
+    #     keep_ratio=1.0,
+    #     is_full_context=False,
+    # )
     
     # for uid, context_rare_words in chain(
     #     context_collector.test_clean_biasing_list.items(),
@@ -163,11 +163,43 @@ def main(params):
             assert ws1 == ws2, f"{uid}:\n ws1={ws1},\n ws2={ws2},\n, rs1={sp.decode(rs1.tolist())},\n, rs2={sp.decode(rs2.tolist())},\n"
             assert us1 == us2, f"{uid}: us1={us1}, us2={us2}"
 
-    if True:  # compute distractor ratio from the biasing list:
+    if False:  # compute distractor ratio from the biasing list:
         n_distractors = 500
         part = "test-other"
         biasing_list, rare_frequency, distractor_ratio = read_ref_biasing_list(params.context_dir / f"ref/{part}.biasing_{n_distractors}.tsv")
         logging.info(f"distractor_ratio = {distractor_ratio}")
+
+    if True:  # compute rare word count distribution
+        from collections import Counter
+        import numpy as np
+
+        n_distractors = 100
+        part = "test-other"
+        biasing_list, rare_frequency, distractor_ratio = read_ref_biasing_list(params.context_dir / f"ref/{part}.biasing_{n_distractors}.tsv")
+        stats = []
+        for uid, context in biasing_list.items():
+            stats.append(len(context[1]))
+        stats = Counter(stats)
+        logging.info(stats)
+        logging.info(f"len(biasing_list) = {len(biasing_list)}")
+
+        # def utt_rare_ratio(my_stats, keep_ratio):
+        #     cnt_all = 0
+        #     cnt_utt_rare = 0  # number of utterances containing at least one rare word
+        #     for k, v in my_stats.items():
+        #         cnt_all += v
+        #         if int(k * keep_ratio) > 0:
+        #             cnt_utt_rare += v
+        #     logging.info(f"keep_ratio={keep_ratio}: {cnt_utt_rare/cnt_all:.4f}")
+        def stats_with_ratio(my_stats, keep_ratio):
+            new_stats = Counter()
+            for k, v in my_stats.items():
+                new_stats[int(k * keep_ratio)] += v
+            # logging.info(f"keep_ratio={keep_ratio}: {cnt_utt_rare/cnt_all:.4f}")
+            print(f"ratio={keep_ratio}:", dict(new_stats))
+        
+        for x in np.arange(0, 1.05, 0.1):
+            stats_with_ratio(stats, x)
 
 
 if __name__ == '__main__':

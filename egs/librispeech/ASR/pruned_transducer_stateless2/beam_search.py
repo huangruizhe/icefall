@@ -973,7 +973,7 @@ def modified_beam_search(
 
     # import pdb; pdb.set_trace()
     if hasattr(model, "scratch_space"):
-        contexts = model.scratch_space.get("contexts", None)
+        contexts_h = model.scratch_space.get("contexts_h", None)
         contexts_mask = model.scratch_space.get("contexts_mask", None)
 
     offset = 0
@@ -1009,9 +1009,9 @@ def modified_beam_search(
         if hasattr(model, "no_decoder_biasing") and not model.no_decoder_biasing:
             contexts_idx = [sorted_indices[i_hyps] for i_hyps, hyps in enumerate(A) for hyp in hyps]
             assert len(contexts_idx) == decoder_out.size(0), (len(contexts_idx), decoder_out.size(0))
-            contexts_, contexts_mask_ = contexts[contexts_idx], contexts_mask[contexts_idx]
+            contexts_h_, contexts_mask_ = contexts_h[contexts_idx], contexts_mask[contexts_idx]
 
-            decoder_biasing_out, attn = model.decoder_biasing_adapter.forward(decoder_out, contexts_, contexts_mask_)  # need_weights=True
+            decoder_biasing_out, attn = model.decoder_biasing_adapter.forward(decoder_out, contexts_h_, contexts_mask_)  # need_weights=True
             # attn_list.append(attn)
 
             decoder_out = decoder_out + decoder_biasing_out
@@ -2416,7 +2416,7 @@ def modified_beam_search_LODR(
     encoder_out = model.joiner.encoder_proj(packed_encoder_out.data)
 
     if hasattr(model, "scratch_space"):
-        contexts = model.scratch_space.get("contexts", None)
+        contexts_h = model.scratch_space.get("contexts_h", None)
         contexts_mask = model.scratch_space.get("contexts_mask", None)
 
     offset = 0
@@ -2452,7 +2452,7 @@ def modified_beam_search_LODR(
         if hasattr(model, "no_decoder_biasing") and not model.no_decoder_biasing:
             contexts_idx = [sorted_indices[i_hyps] for i_hyps, hyps in enumerate(A) for hyp in hyps]
             assert len(contexts_idx) == decoder_out.size(0), (len(contexts_idx), decoder_out.size(0))
-            contexts_, contexts_mask_ = contexts[contexts_idx], contexts_mask[contexts_idx]
+            contexts_, contexts_mask_ = contexts_h[contexts_idx], contexts_mask[contexts_idx]
 
             decoder_biasing_out, attn = model.decoder_biasing_adapter.forward(decoder_out, contexts_, contexts_mask_)  # need_weights=True
 

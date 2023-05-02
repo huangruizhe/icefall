@@ -431,6 +431,13 @@ def get_parser():
         help="The model will learn massively about negative examples, where it needs to always choose <no-bias>",
     )
 
+    parser.add_argument(
+        "--upsample-N",
+        type=int,
+        default=None,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -1224,7 +1231,10 @@ def run(rank, world_size, args):
 
     spgispeech = SPGISpeechAsrDataModule(args)
 
-    train_cuts = spgispeech.train_cuts()
+    if params.upsample_N is None:
+        train_cuts = spgispeech.train_cuts()
+    else:
+        train_cuts = spgispeech.train_cuts_upsampled(params.upsample_N)
     # train_cuts.describe()
 
     # Cut statistics:

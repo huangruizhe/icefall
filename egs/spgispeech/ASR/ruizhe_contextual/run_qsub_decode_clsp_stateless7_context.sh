@@ -51,7 +51,7 @@ context_suffix="_slides"
 # context_suffix="_0.0"
 # context_suffix="_100recall"
 
-epochs=5
+epochs=21
 avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 
@@ -152,7 +152,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
             --beam-size 4 \
             --context-dir "data/rare_words" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --is-bi-context-encoder true --n-distractors 100 
+            --keep-ratio 0.3 --is-bi-context-encoder true --n-distractors 500  # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --is-bi-context-encoder true --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true --iter 248000
         # --context-dir "data/rare_words"
         # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
@@ -196,6 +196,13 @@ fi
 # --biased-lm-scale 12: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3629304.out
 #     10.35_47141     9.57_39626      57.26_1959      52.59_223       28.91_1057      14.15_289
 
+# LM biasing with full slides (rare+commond words)
+# 6:  10.34_47068     9.54_39486      59.08_2021      54.01_229       29.62_1083      14.10_288 # Your job 3632677 ("decode") has been submitted:
+# 7:  10.36_47167     9.57_39618      58.35_1996      53.77_228       29.29_1071      14.19_290 # Your job 3632673 ("decode") has been submitted
+# 8:  10.39_47313     9.61_39781      58.02_1985      54.25_230       29.18_1067      13.95_285 # Your job 3632674 ("decode") has been submitted
+# 9:  10.41_47414     9.64_39894      57.70_1974      52.83_224       28.99_1060      14.00_286 # Your job 3632675 ("decode") has been submitted
+# 10: 10.45_47563     9.67_40055      57.32_1961      52.59_223       28.77_1052      14.00_286 # Your job 3632676 ("decode") has been submitted
+
 
 # Results (Neural biasing):
 # epoch 16: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3630354.out
@@ -203,14 +210,57 @@ fi
 # iter-248000: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3631340.out
 #     20.53_93458     19.31_79966     78.14_2673      72.88_309       52.19_1908      40.19_821
 #
-# Neural biasing is huring WER, including dev WER with random distractors
+# Neural biasing is huring WER, including dev WER with random distractors 
+#  => after fixing the "bi context encoder" issue in beam_search.py, it works pretty well on dev!!!
 #   No biasing: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3631383.out
 #   Neural biasing: /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3631382.out
-# Does it help improving training WER?
-# 
+#   Neural biasing (fixed bi context encoder): /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3632583.out
+#   no biasing: 3633598          2.13(1.86/6.27)
+#   dev+100 distractors: 3633388 1.82(1.73/3.27)  
+#   dev+500 distractors: 3633389 1.85(1.73/3.70)
+#   lm biasing 7  3633390        2.14(1.87/6.34) 
+#   lm biasing 8  3633391        2.15(1.87/6.39)
+#   lm biasing 9  3633392        2.15(1.88/6.37)
+#   lm biasing 10 3633393        2.15(1.87/6.32)
+#   lm biasing 20 3633609        2.32(2.00/7.23)
+# Eval:
+#   val: 3633370                 2.10(1.81/6.59)
+#   val+100 distractors: 3633368 1.78(1.68/3.24) 
+#   val+500 distractors: 3633369 1.83(1.70/3.75)
+#   lm biasing 7  3633395        2.10(1.81/6.60) 
+#   lm biasing 8  3633397        2.10(1.81/6.62)
+#   lm biasing 9  3633398        2.11(1.82/6.61)
+#   lm biasing 10 3633400        2.11(1.81/6.63)
+#
+# epoch 21 (slides): /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3632590.out
+#     10.82_49276     9.95_41215      61.36_2099      56.84_241       33.10_1210      16.40_335
+# epoch 21 (100 distractors): /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3632594.out
+#     10.64_48425     9.77_40459      62.47_2137      58.49_248       35.04_1281      15.96_326
+# epoch 21 (500 distractors): /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3632592.out
+#     10.60_48277     9.73_40286      62.32_2132      61.79_262       34.25_1252      16.05_328
+# epoch 21 (1000 distractors): /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/log/decode-3632593.out
+#     10.40_47354     9.54_39495      60.83_2081      58.49_248       33.53_1226      16.01_327
+
+# spgi cheating experiment with 100 random distractors (similar to dev)
+# 3633244: 10.64_48450     9.78_40490      62.61_2142      59.43_252       34.55_1263      15.27_312
+# spgi cheating experiment with 500 random distractors (similar to dev)
+# 3633246: 10.61_48301     9.74_40316      62.50_2138      58.49_248       34.38_1257      16.30_333
+# 3633231: 10.63_48380     9.75_40361      62.35_2133      59.67_253       34.52_1262      16.15_330
+# spgi cheating experiment with 1000 random distractors (similar to dev)
+# 3633240: 10.34_47061     9.49_39286      59.78_2045      57.31_243       32.19_1177      15.96_326
+# 3633234: 10.30_46914     9.46_39181      58.67_2007      56.13_238       32.60_1192      15.76_322
+# spgi cheating experiment with 2000 random distractors (similar to dev)
+# 3633387: 9.88_44992      9.09_37645      53.55_1832      54.95_233       29.49_1078      14.00_286
+# spgi with slides: keep rare words only, remove oovs
+# 3633230: 10.81_49209     9.93_41109      61.36_2099      59.20_251       32.96_1205      16.35_334
 
 
-
+# TODO:
+# 1. rare word WER
+# 2. remove OOVs -- not good, even worse.
+# 3. check other decoding experiments run this morning
+# 4. spgi with dev setup -- not good either
+# 5. spgi and earnings are different distributions
 
 # Neural biasing
 # slides (removed common words, cuts100)
@@ -253,6 +303,7 @@ fi
 
 # 8.89_227        7.49_172        60.87_14        66.67_2 48.00_12        11.11_2
 # 8.62_220        7.28_167        47.83_11        66.67_2 48.00_12        16.67_3
+
 
 ####################################
 # LODR

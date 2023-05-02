@@ -33,6 +33,13 @@ def parse_opts():
         help="The lang dir containing word table and LG graph",
     )
 
+    parser.add_argument(
+        "--cuts-file-name",
+        type=str,
+        default=None,
+        help="",
+    )
+
     opts = parser.parse_args()
     logging.info(f"Parameters: {vars(opts)}")
     return opts
@@ -112,6 +119,49 @@ def rare_word_rates_distribution(context_collector):
     #        0       0       0       0]
     # Rare ratio < 0.01: 1750630
 
+def ref_to_biasing_ref(cuts_file_name, context_collector):
+    from lhotse import CutSet
+    from tqdm import tqdm
+
+    logging.info(f"Loading cuts from: {cuts_file_name}")
+    cuts = CutSet.from_file(cuts_file_name)
+    logging.info(f'len(cuts) = {len(cuts)}')
+
+    for c in tqdm(cuts, mininterval=2):
+        assert len(c.supervisions) == 1
+        text = c.supervisions[0].text
+        text = text.split()
+        rare = [w for w in text if w in context_collector.rare_words]
+
+        uid = c.supervisions[0].id
+
+        s = str(rare).replace("'", "\"")
+        print(f"{uid}\t{c.supervisions[0].text}\t{s}\t{[]}")
+
+def ref_to_biasing_ref2(cuts_file_name, context_collector):
+    from tqdm import tqdm
+
+    texts = []
+    with open(cuts_file_name, "r") as fin:
+        for line in fin:
+            line = line.strip()
+            if len(line) == 0:
+                continue
+            line = line.split(maxsplit=1)
+            assert len(line) == 2
+            uid = line[0]
+            txt = line[1]
+            texts.append((uid, txt))
+
+    for c in tqdm(texts, mininterval=2):
+        uid, text = c
+        text0 = text
+        text = text.split()
+        rare = [w for w in text if w in context_collector.rare_words]
+
+        s = str(rare).replace("'", "\"")
+        print(f"{uid}\t{text0}\t{s}\t{[]}")
+
 def main(params):
     logging.info("About to load context generator")
     params.context_dir = Path(params.context_dir)
@@ -130,7 +180,13 @@ def main(params):
         is_full_context=False,
     )
     
-    rare_word_rates_distribution(context_collector)
+    # rare_word_rates_distribution(context_collector)
+
+    # cuts_file_name = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_dev.jsonl.gz"
+    # cuts_file_name = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_val.jsonl.gz"
+    cuts_file_name = params.cuts_file_name
+    # ref_to_biasing_ref(cuts_file_name, context_collector)
+    ref_to_biasing_ref2(cuts_file_name, context_collector)
 
     # for uid, context_rare_words in chain(
     #     context_collector.test_clean_biasing_list.items(),

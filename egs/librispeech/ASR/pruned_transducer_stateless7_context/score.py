@@ -11,6 +11,7 @@ from enum import Enum
 import argparse
 import logging
 import json
+from pathlib import Path, PosixPath
 
 
 logger = logging.getLogger(__name__)
@@ -214,19 +215,21 @@ class EditDistance(object):
 
 def main(args):
     refs = {}
-    if type(args.hyps) is str:
+    if type(args.refs) is str or type(args.refs) is PosixPath:
         with open(args.refs, "r") as f:
             for line in f:
                 ary = line.strip().split("\t")
                 uttid, ref, biasing_words = ary[0], ary[1], set(json.loads(ary[2]))
                 refs[uttid] = {"text": ref, "biasing_words": biasing_words}
         logger.info("Loaded %d reference utts from %s", len(refs), args.refs)
-    else:
+    elif type(args.refs) is dict:
         refs = args.refs
         logger.info("Loaded %d reference utts", len(refs))
+    else:
+        raise NotImplementedError
 
     hyps = {}
-    if type(args.hyps) is str:
+    if type(args.hyps) is str or type(args.hyps) is PosixPath:
         with open(args.hyps, "r") as f:
             for line in f:
                 ary = line.strip().split("\t")
@@ -240,6 +243,8 @@ def main(args):
     elif type(args.hyps) is dict:
         hyps = args.hyps
         logger.info("Loaded %d hypothesis utts", len(hyps))
+    else:
+        raise NotImplementedError
 
     if not args.lenient:
         for uttid in refs:

@@ -374,6 +374,11 @@ class SPGISpeechAsrDataModule:
         return load_manifest_lazy(self.args.manifest_dir / "cuts_train_shuf.jsonl.gz")
 
     @lru_cache()
+    def train_cuts_upsampled(self, N) -> CutSet:
+        logging.info(f"About to get SPGISpeech train cuts: upsampled N={N}")
+        return load_manifest_lazy(self.args.manifest_dir / f"cuts_train_shuf_upsampled_{N}.jsonl.gz")
+
+    @lru_cache()
     def dev_cuts(self) -> CutSet:
         logging.info("About to get SPGISpeech dev cuts")
         return load_manifest_lazy(self.args.manifest_dir / "cuts_dev.jsonl.gz")
