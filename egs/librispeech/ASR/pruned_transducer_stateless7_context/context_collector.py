@@ -2,7 +2,7 @@ import torch
 import random
 from pathlib import Path
 import sentencepiece as spm
-from typing import List
+from typing import Union, List
 import logging
 import ast
 import numpy as np
@@ -10,11 +10,29 @@ from itertools import chain
 from word_encoder_bert import BertEncoder
 from context_wfst import generate_context_graph_nfa
 
+class SentenceTokenizer:
+    def encode(self, word_list: List, out_type: type = int) -> List:
+        """
+        Encode a list of words into a list of tokens
+
+        Args:
+            word_list: 
+                A list of words where each word is a string. 
+                E.g., ["nihao", "hello", "你好"]
+            out_type:
+                This defines the output type. If it is an "int" type, 
+                then each token is represented by its interger token id.
+        Returns:
+                A list of tokenized words, where each tokenization 
+                is a list of tokens.
+        """
+        pass
+
 class ContextCollector(torch.utils.data.Dataset):
     def __init__(
         self, 
         path_is21_deep_bias: Path,
-        sp: spm.SentencePieceProcessor,
+        sp: Union[spm.SentencePieceProcessor, SentenceTokenizer],
         bert_encoder: BertEncoder = None,
         n_distractors: int = 100,
         ratio_distractors: int = None,
