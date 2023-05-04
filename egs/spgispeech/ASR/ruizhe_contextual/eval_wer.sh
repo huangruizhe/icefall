@@ -19,6 +19,8 @@ less /export/fs04/a12/rhuang/icefall_align/egs/spgispeech/ASR/tmp/icefall-asr-sp
 cuts="/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics11_temp/cuts_no_feat_20230109050816_merged.jsonl.gz"
 cuts="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
 
+cuts="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_val.jsonl.gz"
+
 mkdir -p data/kaldi
 python -c '''
 from lhotse import CutSet
@@ -164,6 +166,10 @@ eval_wer () {
     --mode "kaldi_rm_sym" | sort \
   > $wer_dir/hyp.txt
 
+  python /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless7_context/score.py \
+    --refs /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/rare_words/ref_norm/biasing_list_ec53.txt \
+    --hyps $wer_dir/hyp.txt
+
   # cat $kaldi_data/text | \
   #   sed -e 's/\[[^][]*\]//g' | \
   #   python /export/fs04/a12/rhuang/contextualizedASR/earnings21/whisper_normalizer.py \
@@ -236,3 +242,49 @@ eval_wer $recogs
 # modified beam search + neural biasing + rnnlm + lodr
 
 # modified beam search + neural biasing + lm biasing + rnnlm + lodr
+
+
+
+# for spgi test set
+eval_wer () {
+  cd /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR
+  icefall_hyp=$1
+
+  cuts="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_val.jsonl.gz" 
+  kaldi_data="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/kaldi_spgi_val/"
+
+  python /export/fs04/a12/rhuang/contextualizedASR/local/recogs_to_text.py \
+    --input $icefall_hyp \
+    --out ${icefall_hyp%.*}.text \
+    --cuts $cuts --use-uid
+
+  wer_dir=$(dirname $icefall_hyp)/wer
+  mkdir -p $wer_dir
+
+  cp ${icefall_hyp%.*}.text $wer_dir/hyp.txt
+
+  python /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless7_context/score.py \
+    --refs /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/rare_words/ref/biasing_list_val.txt \
+    --hyps $wer_dir/hyp.txt
+
+  cp /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/kaldi_spgi_val/ref/ref.* $wer_dir/.
+
+  # compute WER
+  ref=$(realpath $wer_dir/ref.txt)
+  datadir=$(realpath ${kaldi_data})
+  hyp=$(realpath $wer_dir/hyp.txt)
+  decode=$(dirname $hyp)
+  wc -l $ref $hyp
+
+  cd /export/fs04/a12/rhuang/kws/kws_exp/shay/s5c/
+  # . /export/fs04/a12/rhuang/kws/kws_exp/shay/s5c/path.sh
+  bash /export/fs04/a12/rhuang/espnet/egs2/spgispeech/asr1/local/score_kaldi_light.sh \
+    $ref $hyp $datadir $decode
+  cd -
+
+  # export PYTHONPATH=/export/fs04/a12/rhuang/contextualizedASR/:$PYTHONPATH
+  python /export/fs04/a12/rhuang/contextualizedASR/local/check_ner2.py \
+    --special_symbol "'***'" \
+    --per_utt $decode/scoring_kaldi/wer_details/per_utt \
+    --ref_ner $decode/ref.ner #--biasing_list "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context/"
+}

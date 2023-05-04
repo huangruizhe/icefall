@@ -132,6 +132,7 @@ def ref_to_biasing_ref(cuts_file_name, context_collector):
         text = c.supervisions[0].text
         text = text.split()
         rare = [w for w in text if w in context_collector.rare_words]
+        rare = list(set(rare))
 
         uid = c.supervisions[0].id
 
@@ -158,6 +159,7 @@ def ref_to_biasing_ref2(cuts_file_name, context_collector):
         text0 = text
         text = text.split()
         rare = [w for w in text if w in context_collector.rare_words]
+        rare = list(set(rare))
 
         s = str(rare).replace("'", "\"")
         print(f"{uid}\t{text0}\t{s}\t{[]}")
@@ -185,8 +187,8 @@ def main(params):
     # cuts_file_name = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_dev.jsonl.gz"
     # cuts_file_name = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_val.jsonl.gz"
     cuts_file_name = params.cuts_file_name
-    # ref_to_biasing_ref(cuts_file_name, context_collector)
-    ref_to_biasing_ref2(cuts_file_name, context_collector)
+    ref_to_biasing_ref(cuts_file_name, context_collector)
+    # ref_to_biasing_ref2(cuts_file_name, context_collector)
 
     # for uid, context_rare_words in chain(
     #     context_collector.test_clean_biasing_list.items(),
