@@ -131,7 +131,7 @@ def ref_to_biasing_ref(cuts_file_name, context_collector):
         assert len(c.supervisions) == 1
         text = c.supervisions[0].text
         text = text.split()
-        rare = [w for w in text if w in context_collector.rare_words]
+        rare = [w for w in text if w not in context_collector.common_words]  # w in context_collector.rare_words
         rare = list(set(rare))
 
         uid = c.supervisions[0].id
@@ -158,7 +158,7 @@ def ref_to_biasing_ref2(cuts_file_name, context_collector):
         uid, text = c
         text0 = text
         text = text.split()
-        rare = [w for w in text if w in context_collector.rare_words]
+        rare = [w for w in text if w not in context_collector.common_words]  # w in context_collector.rare_words
         rare = list(set(rare))
 
         s = str(rare).replace("'", "\"")

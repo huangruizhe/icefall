@@ -129,20 +129,20 @@ python pruned_transducer_stateless7_context/train.py \
 # V100: --n-distractors 30 --keep-ratio 0.9 --is-full-context true --start-epoch 11 --master-port 12365
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10623530.out
 #    - https://tensorboard.dev/experiment/bV0GEo7QSb6pFoSqzIjDyg/
-# 
-# Stage2 (common words 3k): --n-distractors $n_distractors --start-epoch 13 --master-port 12365
-# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10623668.out
-#    - https://tensorboard.dev/experiment/bV0GEo7QSb6pFoSqzIjDyg/
-#    - https://tensorboard.dev/experiment/Gb9QBc8NQEqKKUj31DUwAA/
-
-# Stage3 (common words 3k + keep_ratio = 0.3~0.8):
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10623668.out 
+#
+# Stage2: --n-distractors $n_distractors --start-epoch 13 --master-port 12365
+# Stage3 (keep_ratio = 0.3~0.8):
 
 
 #### Single context encoder ####
-# Stage1:
+# Stage1: /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1_single_enc
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10628133.out
 #   - https://tensorboard.dev/experiment/PFxBHLRYSeGywUqL8JplGg/
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10628799.out
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10629125.out
 #   - https://tensorboard.dev/experiment/5WQmaW1tRGWmIl4HyLy4sA/
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10646526.out
+# 
 
 

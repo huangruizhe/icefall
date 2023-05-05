@@ -47,6 +47,8 @@ n_distractors=100
 exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2_6k
 exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2
 exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1
+exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1  # epoch 21
+# exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1_single_enc  # epoch 11
 context_suffix="_slides"
 # context_suffix="_0.0"
 # context_suffix="_100recall"
@@ -152,7 +154,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
             --beam-size 4 \
             --context-dir "data/rare_words" \
             --n-distractors $n_distractors \
-            --keep-ratio 0.3 --is-bi-context-encoder true --n-distractors 500  # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
+            --keep-ratio 1.0 --is-bi-context-encoder true --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing true --biased-lm-scale 5 --n-distractors 500  # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true
         # --is-bi-context-encoder true --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true --iter 248000
         # --context-dir "data/rare_words"
         # --slides "/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics2/context${context_suffix}" --is-predefined true

@@ -245,7 +245,8 @@ eval_wer $recogs
 
 
 
-# for spgi test set
+# For spgi test set
+# Also ref: egs/spgispeech/ASR/ruizhe_contextual/run.sh
 eval_wer () {
   cd /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR
   icefall_hyp=$1
@@ -265,7 +266,7 @@ eval_wer () {
 
   python /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/pruned_transducer_stateless7_context/score.py \
     --refs /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/rare_words/ref/biasing_list_val.txt \
-    --hyps $wer_dir/hyp.txt
+    --hyps $wer_dir/hyp.txt # --lenient
 
   cp /export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/kaldi_spgi_val/ref/ref.* $wer_dir/.
 
