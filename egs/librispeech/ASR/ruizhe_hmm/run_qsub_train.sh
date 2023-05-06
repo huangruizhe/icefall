@@ -5,11 +5,13 @@
 #$ -j y -o ruizhe_hmm/log/$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l ram_free=16G,mem_free=16G,gpu=3,hostname=!b*&!c18*
-#$ -q 4gpu.q
+#$ -l ram_free=8G,mem_free=8G,gpu=3,hostname=!b*&!c18*
+#$ -q g.q
 
 # ,hostname=!b*&!c18*
 # &!octopod*
+# -q 4gpu.q
+# -q g.q
 ngpus=3
 
 # Check how many GPUs are available:
@@ -99,15 +101,27 @@ python3 -c "import torch; print(torch.__version__)"
 
 ./zipformer_mmi/train.py \
   --world-size $ngpus \
-  --master-port 12345 \
+  --master-port 12346 \
   --num-epochs 30 \
   --start-epoch 1 \
   --lang-dir data/lang_bpe_500 \
-  --exp-dir zipformer_mmi/exp/exp_libri_100_ml  \
+  --exp-dir zipformer_mmi/exp/exp_libri_100_ctc  \
   --max-duration 200 \
   --full-libri false \
   --use-fp16 true \
-  --save-every-n 20000 --base-lr 0.02 --shuffle false --bucketing-sampler false
+  --save-every-n 20000 --exp-dir zipformer_mmi/exp/exp_libri_100_hmm_mmi --start-epoch 11 --topo-type "hmm" # --base-lr 0.03 # --shuffle false --bucketing-sampler false --start-epoch 11
 # --shuffle false --bucketing-sampler false
 # --start-epoch 3
+
+
+# mkdir -p zipformer_mmi/exp/exp_libri_100_ctc_mmi
+# ln -s /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ctc/epoch-3.pt zipformer_mmi/exp/exp_libri_100_ctc_mmi/.
+# --exp-dir zipformer_mmi/exp/exp_libri_100_ctc_mmi --start-epoch 4 --topo-type "ctc"
+
+# mkdir -p zipformer_mmi/exp/exp_libri_100_hmm_mmi
+# ln -s /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/epoch-10.pt zipformer_mmi/exp/exp_libri_100_hmm_mmi/.
+# --exp-dir zipformer_mmi/exp/exp_libri_100_hmm_mmi --start-epoch 11 --topo-type "hmm"
+
+# 3638099 0.50262 train      rhuang       r     05/06/2023 09:29:21 g.q@octopod.clsp.jhu.edu           1        
+# 3638112 0.50252 train      rhuang       r     05/06/2023 11:03:45 g.q@octopod.clsp.jhu.edu           1        
 

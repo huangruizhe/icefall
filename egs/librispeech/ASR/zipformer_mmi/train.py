@@ -53,6 +53,7 @@ from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
 
 import k2
+import sentencepiece as spm
 import optim
 import torch
 import torch.multiprocessing as mp
@@ -329,6 +330,13 @@ def get_parser():
         help="Whether to use half precision training.",
     )
 
+    parser.add_argument(
+        "--topo-type",
+        type=str,
+        default="ctc",
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -399,7 +407,7 @@ def get_params() -> AttributeDict:
             "ctc_beam_size": 10,
             "reduction": "sum",
             "use_double_scores": True,
-            "warm_step": 2000000000,
+            "warm_step": 2000, # 2000000000,
             "env_info": get_env_info(),
         }
     )
@@ -920,6 +928,9 @@ def run(rank, world_size, args):
     num_classes = max_token_id + 1  # +1 for the blank
     params.vocab_size = num_classes
 
+    bpe_model = spm.SentencePieceProcessor()
+    bpe_model.load(str(Path(params.lang_dir) / "bpe.model"))
+
     device = torch.device("cpu")
     if torch.cuda.is_available():
         device = torch.device("cuda", rank)
@@ -931,6 +942,7 @@ def run(rank, world_size, args):
         device=device,
         sos_token="<sos/eos>",
         eos_token="<sos/eos>",
+        topo_type=params.topo_type,
     )
     mmi_graph_compiler = MmiTrainingGraphCompiler(
         params.lang_dir,
@@ -939,6 +951,8 @@ def run(rank, world_size, args):
         oov="<UNK>",
         sos_id=1,
         eos_id=1,
+        topo_type=params.topo_type,
+        bpe_model=bpe_model,
     )
 
     logging.info(params)
@@ -1009,7 +1023,7 @@ def run(rank, world_size, args):
     else:
         train_cuts = librispeech.train_clean_100_cuts()
         # train_cuts = librispeech.train_clean_100_cuts_sample()
-        train_cuts = train_cuts.sort_by_duration(ascending=True)
+        # train_cuts = train_cuts.sort_by_duration(ascending=True)
         train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):

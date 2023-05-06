@@ -401,6 +401,72 @@ class HMMTrainingGraphCompiler(object):
         # fst = k2.expand_ragged_attributes(fst)
         return fst
 
+    def hmm_topo(
+        self,
+        max_token: int,
+        start_tokens: list,
+        sil_id: int = 0,
+    ) -> k2.Fsa:
+        '''
+        HMM topo
+        '''
+        print("HMM topo")
+        num_tokens = max_token
+        # assert (
+        #     sil_id <= max_token
+        # ), f"sil_id={sil_id} should be less or equal to max_token={max_token}"
+
+        start_tokens = set(start_tokens)
+
+        # ref: https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/prepare_lang.py#L248
+
+        start_state = 0
+        loop_state = 1
+        blk_state = 2
+        next_available_state = 3
+        arcs = []
+
+        blk = sil_id
+        arcs.append([start_state, start_state, blk, blk, 0])
+
+        for i in range(1, max_token + 1):
+            arcs.append([start_state, loop_state, i, i, 0])
+
+        arcs.append([loop_state, blk_state, blk, blk, 0])
+        arcs.append([blk_state, blk_state, blk, blk, 0])
+
+        for i in range(1, max_token + 1):
+            cur_state = next_available_state  # state_id
+            next_available_state += 1
+
+            arcs.append([loop_state, loop_state, i, i, 0])
+            arcs.append([loop_state, cur_state, i, i, 0])
+            arcs.append([cur_state, cur_state, i, blk, 0])
+            arcs.append([cur_state, loop_state, i, blk, 0])
+            
+            arcs.append([start_state, cur_state, i, i, 0])
+
+            if i in start_tokens:
+                arcs.append([blk_state, loop_state, i, i, 0])
+                arcs.append([blk_state, cur_state, i, i, 0])
+
+        final_state = next_available_state
+        next_available_state += 1
+        arcs.append([start_state, final_state, -1, -1, 0])
+        arcs.append([loop_state, final_state, -1, -1, 0])
+        arcs.append([blk_state, final_state, -1, -1, 0])    
+        arcs.append([final_state])
+
+        arcs = sorted(arcs, key=lambda arc: arc[0])
+        arcs = [[str(i) for i in arc] for arc in arcs]
+        arcs = [" ".join(arc) for arc in arcs]
+        arcs = "\n".join(arcs)
+
+        fst = k2.Fsa.from_str(arcs, acceptor=False)
+        # fst = k2.remove_epsilon(fst)  # Credit: Matthew W
+        # fst = k2.expand_ragged_attributes(fst)
+        return fst
+
     @staticmethod
     def determinize(k2_fst):
         fst = k2_to_openfst(k2_fst, olabels="aux_labels")
@@ -464,6 +530,10 @@ class HMMTrainingGraphCompiler(object):
         self.oov_id = lexicon.word_table[oov]
         self.word_table = lexicon.word_table
 
+        # For debugging purpose only
+        self.lexicon = lexicon
+        self.start_tokens = {i for i in range(1, max_token_id + 1) if lexicon.token_table.get(i).startswith('▁')}
+
         if sil_token is not None:
             assert sil_token in lexicon.token_table
             self.sil_token_id = lexicon.token_table[sil_token]
@@ -486,7 +556,7 @@ class HMMTrainingGraphCompiler(object):
         #     max_token_id + 1 if sil_word is not None else max_token_id, self.sil_token_id
         # )  # add one for the <sil> token
         # hmm_topo = k2.ctc_topo(max_token_id, modified=False)
-        hmm_topo = k2.ctc_topo(max_token_id, modified=True)
+        # hmm_topo = k2.ctc_topo(max_token_id, modified=True)
         # hmm_topo = HMMTrainingGraphCompiler.ctc_topo_modified(
         #     max_token_id, None
         # )
@@ -498,14 +568,11 @@ class HMMTrainingGraphCompiler(object):
         #     lexicon.token_table["#0"],
         #     lexicon,
         # )
+        hmm_topo = self.hmm_topo(max_token_id, self.start_tokens)
         print(f"Topo size: {(hmm_topo.shape[0], hmm_topo.num_arcs)}")
 
         self.topo = hmm_topo.to(device)
         self.device = device
-
-        # For debugging purpose only
-        self.lexicon = lexicon
-        self.start_tokens = {i for i in range(1, max_token_id + 1) if lexicon.token_table.get(i).startswith('▁')}
 
         self.remove_intra_word_blk_flag = True
         print(f"self.remove_intra_word_blk_flag={self.remove_intra_word_blk_flag}")

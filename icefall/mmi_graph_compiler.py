@@ -6,6 +6,7 @@ import k2
 import torch
 
 from icefall.lexicon import UniqLexicon
+from icefall.bpe_graph_compiler import BpeCtcTrainingGraphCompiler
 
 
 class MmiTrainingGraphCompiler(object):
@@ -17,6 +18,8 @@ class MmiTrainingGraphCompiler(object):
         oov: str = "<UNK>",
         sos_id: int = 1,
         eos_id: int = 1,
+        bpe_model = None,
+        topo_type = "ctc",
     ):
         """
         Args:
@@ -50,9 +53,11 @@ class MmiTrainingGraphCompiler(object):
         self.sos_id = sos_id
         self.eos_id = eos_id
 
-        self.build_ctc_topo_P()
+        self.bpe_model = bpe_model
 
-    def build_ctc_topo_P(self):
+        self.build_ctc_topo_P(topo_type=topo_type)
+
+    def build_ctc_topo_P(self, topo_type="ctc"):
         """Built ctc_topo_P, the composition result of
         ctc_topo and P, where P is a pre-trained bigram
         word piece LM.
@@ -86,10 +91,19 @@ class MmiTrainingGraphCompiler(object):
         P_with_self_loops = k2.add_epsilon_self_loops(P)
 
         max_token_id = max(self.lexicon.tokens)
-        logging.info(
-            f"Building ctc_topo (modified=False). max_token_id: {max_token_id}"
-        )
-        ctc_topo = k2.ctc_topo(max_token_id, modified=False, device=self.device)
+        if topo_type == "ctc":
+            logging.info(
+                f"Building ctc_topo (modified=False). max_token_id: {max_token_id}"
+            )
+            ctc_topo = k2.ctc_topo(max_token_id, modified=False, device=self.device)
+        elif topo_type == "hmm":
+            logging.info(
+                f"Building hmm_topo. max_token_id: {max_token_id}"
+            )
+            start_tokens = {token_id for token_id in range(self.bpe_model.vocab_size()) if self.bpe_model.id_to_piece(token_id).startswith("▁")}
+            ctc_topo = BpeCtcTrainingGraphCompiler.hmm_topo(max_token_id, start_tokens=start_tokens, device=self.device)
+        else:
+            raise NotImplementedError
 
         ctc_topo_inv = k2.arc_sort(ctc_topo.invert_())
 

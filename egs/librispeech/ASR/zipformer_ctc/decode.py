@@ -557,6 +557,7 @@ def main():
         oov="<UNK>",
         sos_id=1,
         eos_id=1,
+        bpe_model=bpe_model,
     )
     HP = mmi_graph_compiler.ctc_topo_P
     HP.scores *= params.hp_scale

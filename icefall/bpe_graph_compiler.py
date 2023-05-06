@@ -31,6 +31,7 @@ class BpeCtcTrainingGraphCompiler(object):
         device: Union[str, torch.device] = "cpu",
         sos_token: str = "<sos/eos>",
         eos_token: str = "<sos/eos>",
+        topo_type = "ctc",
     ) -> None:
         """
         Args:
@@ -63,6 +64,11 @@ class BpeCtcTrainingGraphCompiler(object):
         self.start_tokens = {token_id for token_id in range(sp.vocab_size()) if sp.id_to_piece(token_id).startswith("▁")}
         self.remove_intra_word_blk_flag = True
         print(f"self.remove_intra_word_blk_flag={self.remove_intra_word_blk_flag}")
+
+        self.max_token_id = sp.vocab_size() - 1
+        self.topo = BpeCtcTrainingGraphCompiler.hmm_topo(self.max_token_id, self.start_tokens)
+
+        self.topo_type = topo_type
 
     def texts_to_ids(self, texts: List[str]) -> List[List[int]]:
         """Convert a list of texts to a list-of-list of piece IDs.
@@ -151,7 +157,8 @@ class BpeCtcTrainingGraphCompiler(object):
         decoding_graphs = decoding_graphs.to(self.device)
         return decoding_graphs
 
-    def compile(
+    # This works!
+    def compile_ctc(
         self,
         piece_ids: List[List[int]],
         modified: bool = False,
@@ -170,5 +177,106 @@ class BpeCtcTrainingGraphCompiler(object):
         """
         graph = k2.ctc_graph(piece_ids, modified=modified, device=self.device)
 
-        graph = self.remove_intra_word_blk(graph, self.start_tokens, flag=self.remove_intra_word_blk_flag)
+        # graph = self.remove_intra_word_blk(graph, self.start_tokens, flag=self.remove_intra_word_blk_flag)
         return graph
+
+    @staticmethod
+    def hmm_topo(
+        max_token: int,
+        start_tokens: list,
+        device = None,
+        sil_id: int = 0,
+    ) -> k2.Fsa:
+        '''
+        HMM topo
+        '''
+        print("HMM topo")
+        num_tokens = max_token
+        # assert (
+        #     sil_id <= max_token
+        # ), f"sil_id={sil_id} should be less or equal to max_token={max_token}"
+
+        start_tokens = set(start_tokens)
+
+        # ref: https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/prepare_lang.py#L248
+
+        start_state = 0
+        loop_state = 1
+        blk_state = 2
+        next_available_state = 3
+        arcs = []
+
+        blk = sil_id
+        arcs.append([start_state, start_state, blk, blk, 0])
+
+        for i in range(1, max_token + 1):
+            arcs.append([start_state, loop_state, i, i, 0])
+
+        arcs.append([loop_state, blk_state, blk, blk, 0])
+        arcs.append([blk_state, blk_state, blk, blk, 0])
+
+        for i in range(1, max_token + 1):
+            cur_state = next_available_state  # state_id
+            next_available_state += 1
+
+            arcs.append([loop_state, loop_state, i, i, 0])
+            arcs.append([loop_state, cur_state, i, i, 0])
+            arcs.append([cur_state, cur_state, i, blk, 0])
+            arcs.append([cur_state, loop_state, i, blk, 0])
+            
+            arcs.append([start_state, cur_state, i, i, 0])
+
+            if i in start_tokens:
+                arcs.append([blk_state, loop_state, i, i, 0])
+                arcs.append([blk_state, cur_state, i, i, 0])
+
+        final_state = next_available_state
+        next_available_state += 1
+        arcs.append([start_state, final_state, -1, -1, 0])
+        arcs.append([loop_state, final_state, -1, -1, 0])
+        arcs.append([blk_state, final_state, -1, -1, 0])    
+        arcs.append([final_state])
+
+        arcs = sorted(arcs, key=lambda arc: arc[0])
+        arcs = [[str(i) for i in arc] for arc in arcs]
+        arcs = [" ".join(arc) for arc in arcs]
+        arcs = "\n".join(arcs)
+
+        fst = k2.Fsa.from_str(arcs, acceptor=False)
+        # fst = k2.remove_epsilon(fst)  # Credit: Matthew W
+        # fst = k2.expand_ragged_attributes(fst)
+        fst = k2.arc_sort(fst)
+        
+        if device is not None:
+            fst = fst.to(device)
+
+        return fst
+
+    def compile_hmm(
+        self,
+        piece_ids: List[List[int]],
+        modified: bool = False,
+    ) -> k2.Fsa:
+        transcript_fsa = k2.linear_fsa(piece_ids)
+        transcript_fsa = k2.arc_sort(transcript_fsa)
+
+        decoding_graphs = k2.compose(
+            self.topo, transcript_fsa, treat_epsilons_specially=True
+        )
+        decoding_graphs = k2.connect(decoding_graphs)
+        decoding_graphs = decoding_graphs.to(self.device)
+        
+        return decoding_graphs
+
+    def compile(
+        self,
+        piece_ids: List[List[int]],
+        modified: bool = False,
+    ) -> k2.Fsa:
+        if self.topo_type == "ctc":
+            return self.compile_ctc(piece_ids, modified)
+        elif self.topo_type == "hmm":
+            return self.compile_hmm(piece_ids, modified)
+        else:
+            raise NotImplementedError
+
