@@ -20,6 +20,7 @@ cuts="/export/fs04/a12/rhuang/contextualizedASR/data/ec53_kaldi_heuristics11_tem
 cuts="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_ec53_norm.jsonl.gz"
 
 cuts="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_val.jsonl.gz"
+cuts="/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_val.jsonl.gz"
 
 mkdir -p data/kaldi
 python -c '''

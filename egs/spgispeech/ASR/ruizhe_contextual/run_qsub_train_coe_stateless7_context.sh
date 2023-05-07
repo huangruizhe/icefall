@@ -142,7 +142,10 @@ python pruned_transducer_stateless7_context/train.py \
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10628799.out
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10629125.out
 #   - https://tensorboard.dev/experiment/5WQmaW1tRGWmIl4HyLy4sA/
+# 3x upsampled:
 # /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10646526.out
-# 
+# 5x upsampled:
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/ruizhe_contextual/log/log-train-10646929.out
+#
 
 
