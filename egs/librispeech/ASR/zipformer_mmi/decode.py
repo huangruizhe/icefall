@@ -219,6 +219,13 @@ def get_parser():
         """,
     )
 
+    parser.add_argument(
+        "--topo-type",
+        type=str,
+        default="ctc",
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -558,6 +565,7 @@ def main():
         sos_id=1,
         eos_id=1,
         bpe_model=bpe_model,
+        topo_type=params.topo_type,
     )
     HP = mmi_graph_compiler.ctc_topo_P
     HP.scores *= params.hp_scale
@@ -699,16 +707,18 @@ def main():
     librispeech = LibriSpeechAsrDataModule(args)
 
     test_clean_cuts = librispeech.test_clean_cuts()
-    # test_other_cuts = librispeech.test_other_cuts()
-    test_clean_cuts = test_clean_cuts.sample(n_cuts=100)
+    test_other_cuts = librispeech.test_other_cuts()
+    # test_clean_cuts = test_clean_cuts.sample(n_cuts=100)
 
     test_clean_dl = librispeech.test_dataloaders(test_clean_cuts)
-    # test_other_dl = librispeech.test_dataloaders(test_other_cuts)
+    test_other_dl = librispeech.test_dataloaders(test_other_cuts)
 
-    # test_sets = ["test-clean", "test-other"]
-    # test_dl = [test_clean_dl, test_other_dl]
-    test_sets = ["test-clean"]
-    test_dl = [test_clean_dl]
+    test_sets = ["test-clean", "test-other"]
+    test_dl = [test_clean_dl, test_other_dl]
+    # test_sets = ["test-clean"]
+    # test_dl = [test_clean_dl]
+    # test_sets = ["test-other"]
+    # test_dl = [test_other_dl]
 
     for test_set, test_dl in zip(test_sets, test_dl):
         results_dict = decode_dataset(

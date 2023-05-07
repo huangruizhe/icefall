@@ -5,14 +5,14 @@
 #$ -j y -o ruizhe_hmm/log/$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l ram_free=8G,mem_free=8G,gpu=3,hostname=!b*&!c18*
+#$ -l ram_free=8G,mem_free=8G,gpu=4,hostname=!b*&!c18*
 #$ -q g.q
 
 # ,hostname=!b*&!c18*
 # &!octopod*
 # -q 4gpu.q
 # -q g.q
-ngpus=3
+ngpus=4
 
 # Check how many GPUs are available:
 # qstat -F gpu -q g.q | grep -A2 '.*@\(c\).* *lx-amd64 *[aA ]$'
@@ -109,10 +109,21 @@ python3 -c "import torch; print(torch.__version__)"
   --max-duration 200 \
   --full-libri false \
   --use-fp16 true \
-  --save-every-n 20000 --exp-dir zipformer_mmi/exp/exp_libri_100_hmm_mmi --start-epoch 11 --topo-type "hmm" # --base-lr 0.03 # --shuffle false --bucketing-sampler false --start-epoch 11
+  --save-every-n 20000 --exp-dir zipformer_mmi/exp/exp_libri_100_ctc_mmi --start-epoch 4 --topo-type "ctc" # --base-lr 0.03 # --shuffle false --bucketing-sampler false --start-epoch 11
 # --shuffle false --bucketing-sampler false
 # --start-epoch 3
 
+# ASR results: 
+# ctc_ml    7.53/19.39  # /exp/rhuang/icefall_latest/egs/librispeech/ASR/ruizhe/log/log-decode-10571540.out
+# ctc_mmi      6/16.65  # 
+# hmm_ml   13.91/31.68  # ep30,avg1  # /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/nbest-rescoring-LG/log-decode-epoch-30-avg-1-2023-05-06-18-33-36 # /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/nbest-rescoring-LG/log-decode-epoch-30-avg-1-2023-05-06-18-53-59
+# hmm_ml   12.16/28.09  # ep30,avg10 
+# hmm_ml   12.72/28.98  # ep30,avg10,decode with ctc topo
+# hmm_mmi       /       # ep30,avg10
+
+# Xiaohui's paper:
+# ctc_ml     4.6/11.5
+# hmm_ml     7.2/17.3
 
 # mkdir -p zipformer_mmi/exp/exp_libri_100_ctc_mmi
 # ln -s /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ctc/epoch-3.pt zipformer_mmi/exp/exp_libri_100_ctc_mmi/.
@@ -122,6 +133,16 @@ python3 -c "import torch; print(torch.__version__)"
 # ln -s /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/epoch-10.pt zipformer_mmi/exp/exp_libri_100_hmm_mmi/.
 # --exp-dir zipformer_mmi/exp/exp_libri_100_hmm_mmi --start-epoch 11 --topo-type "hmm"
 
-# 3638099 0.50262 train      rhuang       r     05/06/2023 09:29:21 g.q@octopod.clsp.jhu.edu           1        
-# 3638112 0.50252 train      rhuang       r     05/06/2023 11:03:45 g.q@octopod.clsp.jhu.edu           1        
+# hmm_ml  # 3638099 0.50262 train      rhuang       r     05/06/2023 09:29:21 g.q@octopod.clsp.jhu.edu           1        
+# ctc_ml  # 3638112 0.50252 train      rhuang       r     05/06/2023 11:03:45 g.q@octopod.clsp.jhu.edu           1        
+# hmm_mmi # 3638140 0.50158 train      rhuang       r     05/06/2023 13:47:51 g.q@c10.clsp.jhu.edu               1        
+# ctc_mmi # 3638253 0.50237 train      rhuang       r     05/06/2023 22:24:37 g.q@octopod.clsp.jhu.edu           1        
+# /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_hmm/log/train-3638140.out
+
+# hmm vs. hmm_mmi:
+# https://tensorboard.dev/experiment/QOXqNxmbS1i8WLBdwYtAGw/#scalars&runSelectionState=eyIwLjAyX3NvcnRlZF9jdXRzIjpmYWxzZSwiMC4wMl9zb3J0ZWRfY3V0c19teXRvcG8iOmZhbHNlLCIwLjAzX215dG9wbyI6dHJ1ZSwiMC4wNSI6ZmFsc2UsImN0YyI6ZmFsc2UsIjAuMDEiOmZhbHNlLCIwLjAwMSI6ZmFsc2UsIjAuMDMiOmZhbHNlLCJjdGMyIjp0cnVlfQ%3D%3D
+# https://tensorboard.dev/experiment/NDJjysghQl69AQRup2l3Cg/
+
+# ctc vs. ctc_mmi:
+# https://tensorboard.dev/experiment/aRhb7xjtRLqaLD5AOzM7XA/#scalars
 
