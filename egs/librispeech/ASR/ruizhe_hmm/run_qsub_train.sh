@@ -119,7 +119,9 @@ python3 -c "import torch; print(torch.__version__)"
 # hmm_ml   13.91/31.68  # ep30,avg1  # /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/nbest-rescoring-LG/log-decode-epoch-30-avg-1-2023-05-06-18-33-36 # /export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/zipformer_mmi/exp/exp_libri_100_ml/nbest-rescoring-LG/log-decode-epoch-30-avg-1-2023-05-06-18-53-59
 # hmm_ml   12.16/28.09  # ep30,avg10 
 # hmm_ml   12.72/28.98  # ep30,avg10,decode with ctc topo
-# hmm_mmi       /       # ep30,avg10
+# hmm_mmi   9.32/24.83  # ep19,avg1
+# hmm_mmi   8.61/23.16  # ep23,avg6
+# hmm_mmi   8.24/22.22  # ep30,avg10
 
 # Xiaohui's paper:
 # ctc_ml     4.6/11.5
