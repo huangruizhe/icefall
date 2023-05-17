@@ -65,8 +65,12 @@ class BpeCtcTrainingGraphCompiler(object):
         self.remove_intra_word_blk_flag = True
         print(f"self.remove_intra_word_blk_flag={self.remove_intra_word_blk_flag}")
 
-        self.max_token_id = sp.vocab_size() - 1
-        self.topo = BpeCtcTrainingGraphCompiler.hmm_topo(self.max_token_id, self.start_tokens)
+        if topo_type == "hmm":
+            self.max_token_id = sp.vocab_size() - 1
+            self.topo = BpeCtcTrainingGraphCompiler.hmm_topo(self.max_token_id, self.start_tokens)
+        else:
+            self.max_token_id = None
+            self.topo = None
 
         self.topo_type = topo_type
 
@@ -190,7 +194,7 @@ class BpeCtcTrainingGraphCompiler(object):
         '''
         HMM topo
         '''
-        print("HMM topo")
+        print(f"Creating HMM topo for {max_token} tokens")
         num_tokens = max_token
         # assert (
         #     sil_id <= max_token

@@ -365,7 +365,8 @@ class LibriSpeechAsrDataModule:
             )
         valid_sampler = DynamicBucketingSampler(
             cuts_valid,
-            max_duration=self.args.max_duration,
+            # max_duration=self.args.max_duration,
+            max_duration=300,  # hard-code this to 300
             shuffle=False,
         )
         logging.info("About to create dev dataloader")
@@ -444,6 +445,16 @@ class LibriSpeechAsrDataModule:
         )
         return load_manifest_lazy(
             self.args.manifest_dir / "librispeech_cuts_train-all-shuf.jsonl.gz"
+        )
+    
+    @lru_cache()
+    def train_all_sorted_cuts(self) -> CutSet:
+        logging.info(
+            "About to get the duration-sorted train-clean-100, \
+            train-clean-360 and train-other-500 cuts"
+        )
+        return load_manifest_lazy(
+            self.args.manifest_dir / "librispeech_cuts_train-all-sorted.jsonl.gz"
         )
 
     @lru_cache()

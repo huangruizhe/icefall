@@ -337,6 +337,20 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--warm-step",
+        type=int,
+        default=2000,
+        help="",
+    )
+
+    parser.add_argument(
+        "--curriculum",
+        type=str2bool,
+        default=False,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -1019,11 +1033,15 @@ def run(rank, world_size, args):
     if params.full_libri:
         # train_cuts += librispeech.train_clean_360_cuts()
         # train_cuts += librispeech.train_other_500_cuts()
-        train_cuts = librispeech.train_all_shuf_cuts()
+        if params.curriculum:
+            train_cuts = librispeech.train_all_sorted_cuts()
+        else:
+            train_cuts = librispeech.train_all_shuf_cuts()
     else:
         train_cuts = librispeech.train_clean_100_cuts()
         # train_cuts = librispeech.train_clean_100_cuts_sample()
-        # train_cuts = train_cuts.sort_by_duration(ascending=True)
+        if params.curriculum:
+            train_cuts = train_cuts.sort_by_duration(ascending=True)
         train_cuts.describe()
 
     def remove_short_and_long_utt(c: Cut):
@@ -1054,7 +1072,7 @@ def run(rank, world_size, args):
     valid_cuts += librispeech.dev_other_cuts()
     valid_dl = librispeech.valid_dataloaders(valid_cuts)
 
-    if not params.print_diagnostics:
+    if False and not params.print_diagnostics:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,
