@@ -662,17 +662,23 @@ def compute_loss(
             den_scale=params.den_scale,
             beam_size=params.mmi_beam_size,
         )
-        loss = loss_fn(dense_fsa_vec=dense_fsa_vec, texts=texts)
-        info["ctc_loss"] = 0
-        info["mmi_loss"] = loss.detach().cpu().item()
+        try:
+            loss = loss_fn(dense_fsa_vec=dense_fsa_vec, texts=texts)
+            info["ctc_loss"] = 0
+            info["mmi_loss"] = loss.detach().cpu().item()
+        except:
+            loss = None
 
-    assert loss.requires_grad == is_training
+    if loss is not None:
+        assert loss.requires_grad == is_training
 
-    info["frames"] = encoder_out_lens.sum().cpu().item()
-    # Note: We use reduction=sum while computing the loss.
-    info["loss"] = loss.detach().cpu().item()
+        info["frames"] = encoder_out_lens.sum().cpu().item()
+        # Note: We use reduction=sum while computing the loss.
+        info["loss"] = loss.detach().cpu().item()
 
-    return loss, info
+        return loss, info
+    else:
+        return loss, info
 
 
 def compute_validation_loss(
@@ -697,6 +703,8 @@ def compute_validation_loss(
             batch=batch,
             is_training=False,
         )
+        if loss is None:
+            continue
         assert loss.requires_grad is False
         tot_loss = tot_loss + loss_info
 
@@ -783,6 +791,8 @@ def train_one_epoch(
                     batch=batch,
                     is_training=True,
                 )
+            if loss is None:
+                continue
             # summary stats
             tot_loss = (tot_loss * (1 - 1 / params.reset_interval)) + loss_info
 
@@ -1192,6 +1202,8 @@ def scan_pessimistic_batches_for_oom(
                     batch=batch,
                     is_training=True,
                 )
+                if loss is None:
+                    continue
             loss.backward()
             optimizer.zero_grad()
         except Exception as e:
