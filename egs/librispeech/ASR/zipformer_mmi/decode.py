@@ -226,6 +226,13 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--loss-type",
+        type=str,
+        default="ml",
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -252,6 +259,7 @@ def decode_one_batch(
     HP: Optional[k2.Fsa],
     bpe_model: Optional[spm.SentencePieceProcessor],
     batch: dict,
+    word_table: k2.SymbolTable,
     G: Optional[k2.Fsa] = None,
     LG: Optional[k2.Fsa] = None,
 ) -> Dict[str, List[List[str]]]:
@@ -347,6 +355,11 @@ def decode_one_batch(
             )
             key = f"no_rescore-nbest-scale-{params.nbest_scale}-{params.num_paths}"  # noqa
 
+        if params.loss_type == "ml":
+            hyps = get_texts(best_path)
+            hyps = [[word_table[i] for i in ids] for ids in hyps]
+            return {key: hyps}
+
         # Note: `best_path.aux_labels` contains token IDs, not word IDs
         # since we are using HP, not HLG here.
         #
@@ -400,6 +413,7 @@ def decode_dataset(
     model: nn.Module,
     HP: k2.Fsa,
     bpe_model: spm.SentencePieceProcessor,
+    word_table: k2.SymbolTable,
     G: Optional[k2.Fsa] = None,
     LG: Optional[k2.Fsa] = None,
 ) -> Dict[str, List[Tuple[str, List[str], List[str]]]]:
@@ -451,6 +465,7 @@ def decode_dataset(
             batch=batch,
             G=G,
             LG=LG,
+            word_table=word_table,
         )
 
         for name, hyps in hyps_dict.items():
@@ -571,6 +586,17 @@ def main():
     HP.scores *= params.hp_scale
     if not hasattr(HP, "lm_scores"):
         HP.lm_scores = HP.scores.clone()
+    
+    if params.loss_type == "ml":
+        logging.info("Decoding for a ML model, instead of MMI model")
+        HLG = k2.Fsa.from_dict(
+            torch.load(f"{params.lang_dir}/HLG.pt", map_location=device)
+        )
+        assert HLG.requires_grad is False
+        HLG.scores *= params.hp_scale
+        if not hasattr(HLG, "lm_scores"):
+            HLG.lm_scores = HLG.scores.clone()
+        HP = HLG
 
     LG = None
     G = None
@@ -729,6 +755,7 @@ def main():
             bpe_model=bpe_model,
             G=G,
             LG=LG,
+            word_table=lexicon.word_table,
         )
 
         save_results(

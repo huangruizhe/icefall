@@ -668,6 +668,8 @@ def compute_loss(
             info["mmi_loss"] = loss.detach().cpu().item()
         except:
             loss = None
+            info["ctc_loss"] = 0
+            info["mmi_loss"] = 10
 
     if loss is not None:
         assert loss.requires_grad == is_training
@@ -678,6 +680,11 @@ def compute_loss(
 
         return loss, info
     else:
+        info["frames"] = encoder_out_lens.sum().cpu().item()
+        # Note: We use reduction=sum while computing the loss.
+        info["loss"] = 10
+
+        info = (nnet_output.sum() * 0, info)
         return loss, info
 
 
@@ -704,7 +711,7 @@ def compute_validation_loss(
             is_training=False,
         )
         if loss is None:
-            continue
+            loss, loss_info = loss_info
         assert loss.requires_grad is False
         tot_loss = tot_loss + loss_info
 
@@ -781,6 +788,9 @@ def train_one_epoch(
         params.batch_idx_train += 1
         batch_size = len(batch["supervisions"]["text"])
 
+        # supervisions = batch["supervisions"]
+        # logging.info(f"batch_id={batch_idx} cuts: {[c.id for c in supervisions['cut']]}")
+
         try:
             with torch.cuda.amp.autocast(enabled=params.use_fp16):
                 loss, loss_info = compute_loss(
@@ -791,8 +801,14 @@ def train_one_epoch(
                     batch=batch,
                     is_training=True,
                 )
+            # logging.info(f"batch_id={batch_idx} Done.")
             if loss is None:
-                continue
+                logging.info(f"batch_id={batch_idx} has None loss")
+                supervisions = batch["supervisions"]
+                logging.info(f"batch_id={batch_idx} cuts: {[c.id for c in supervisions['cut']]}")
+                # loss = torch.zeros(1, requires_grad=True)[0]
+                # loss = loss.to(model.device)
+                loss, loss_info = loss_info
             # summary stats
             tot_loss = (tot_loss * (1 - 1 / params.reset_interval)) + loss_info
 
@@ -1203,7 +1219,7 @@ def scan_pessimistic_batches_for_oom(
                     is_training=True,
                 )
                 if loss is None:
-                    continue
+                    loss, _ = _
             loss.backward()
             optimizer.zero_grad()
         except Exception as e:
