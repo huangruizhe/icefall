@@ -80,15 +80,16 @@ class Transformer(nn.Module):
         self.num_features = num_features
         self.num_classes = num_classes
         self.subsampling_factor = subsampling_factor
-        if subsampling_factor != 4:
-            raise NotImplementedError("Support only 'subsampling_factor=4'.")
+        # if subsampling_factor != 4:
+        #     raise NotImplementedError("Support only 'subsampling_factor=4'.")
 
         # self.encoder_embed converts the input of shape (N, T, num_classes)
         # to the shape (N, T//subsampling_factor, d_model).
         # That is, it does two things simultaneously:
         #   (1) subsampling: T -> T//subsampling_factor
         #   (2) embedding: num_classes -> d_model
-        self.encoder_embed = Conv2dSubsampling(num_features, d_model)
+        self.encoder_embed = Conv2dSubsampling(num_features, d_model, no_subsampling=True)
+        #self.encoder_embed = nn.Linear(num_features, d_model)
 
         self.encoder_pos = PositionalEncoding(d_model, dropout)
 

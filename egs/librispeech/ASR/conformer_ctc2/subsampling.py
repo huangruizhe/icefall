@@ -44,6 +44,7 @@ class Conv2dSubsampling(torch.nn.Module):
         layer1_channels: int = 8,
         layer2_channels: int = 32,
         layer3_channels: int = 128,
+        no_subsampling = False,
     ) -> None:
         """
         Args:
@@ -60,35 +61,66 @@ class Conv2dSubsampling(torch.nn.Module):
         assert in_channels >= 7
         super().__init__()
 
-        self.conv = torch.nn.Sequential(
-            ScaledConv2d(
-                in_channels=1,
-                out_channels=layer1_channels,
-                kernel_size=3,
-                padding=1,
-            ),
-            ActivationBalancer(channel_dim=1),
-            DoubleSwish(),
-            ScaledConv2d(
-                in_channels=layer1_channels,
-                out_channels=layer2_channels,
-                kernel_size=3,
-                stride=2,
-            ),
-            ActivationBalancer(channel_dim=1),
-            DoubleSwish(),
-            ScaledConv2d(
-                in_channels=layer2_channels,
-                out_channels=layer3_channels,
-                kernel_size=3,
-                stride=2,
-            ),
-            ActivationBalancer(channel_dim=1),
-            DoubleSwish(),
-        )
-        self.out = ScaledLinear(
-            layer3_channels * (((in_channels - 1) // 2 - 1) // 2), out_channels
-        )
+        if no_subsampling:
+            self.conv = torch.nn.Sequential(
+                ScaledConv2d(
+                    in_channels=1,
+                    out_channels=layer1_channels,
+                    kernel_size=3,
+                    padding=1,
+                ),
+                ActivationBalancer(channel_dim=1),
+                DoubleSwish(),
+                ScaledConv2d(
+                    in_channels=layer1_channels,
+                    out_channels=layer2_channels,
+                    kernel_size=3,
+                    stride=1, padding=1,
+                ),
+                ActivationBalancer(channel_dim=1),
+                DoubleSwish(),
+                ScaledConv2d(
+                    in_channels=layer2_channels,
+                    out_channels=layer3_channels,
+                    kernel_size=3,
+                    stride=1, padding=1,
+                ),
+                ActivationBalancer(channel_dim=1),
+                DoubleSwish(),
+            )
+            self.out = ScaledLinear(
+                layer3_channels * in_channels, out_channels
+            )
+        else:
+            self.conv = torch.nn.Sequential(
+                ScaledConv2d(
+                    in_channels=1,
+                    out_channels=layer1_channels,
+                    kernel_size=3,
+                    padding=1,
+                ),
+                ActivationBalancer(channel_dim=1),
+                DoubleSwish(),
+                ScaledConv2d(
+                    in_channels=layer1_channels,
+                    out_channels=layer2_channels,
+                    kernel_size=3,
+                    stride=2,
+                ),
+                ActivationBalancer(channel_dim=1),
+                DoubleSwish(),
+                ScaledConv2d(
+                    in_channels=layer2_channels,
+                    out_channels=layer3_channels,
+                    kernel_size=3,
+                    stride=2,
+                ),
+                ActivationBalancer(channel_dim=1),
+                DoubleSwish(),
+            )
+            self.out = ScaledLinear(
+                layer3_channels * (((in_channels - 1) // 2 - 1) // 2), out_channels
+            )
         # set learn_eps=False because out_norm is preceded by `out`, and `out`
         # itself has learned scale, so the extra degree of freedom is not
         # needed.

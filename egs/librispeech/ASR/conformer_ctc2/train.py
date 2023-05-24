@@ -350,7 +350,8 @@ def get_params() -> AttributeDict:
             "valid_interval": 3000,  # For the 100h subset, use 800
             # parameters for conformer
             "feature_dim": 80,
-            "subsampling_factor": 4,
+            # "subsampling_factor": 4,
+            "subsampling_factor": 1,
             "encoder_dim": 512,
             "nhead": 8,
             "dim_feedforward": 2048,

@@ -254,7 +254,8 @@ def get_params() -> AttributeDict:
     params = AttributeDict(
         {
             # parameters for conformer
-            "subsampling_factor": 4,
+            # "subsampling_factor": 4,
+            "subsampling_factor": 1,
             "feature_dim": 80,
             "nhead": 8,
             "dim_feedforward": 2048,
