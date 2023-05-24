@@ -104,6 +104,7 @@ class MmiTrainingGraphCompiler(object):
             ctc_topo = BpeCtcTrainingGraphCompiler.hmm_topo(max_token_id, start_tokens=start_tokens, device=self.device)
         else:
             raise NotImplementedError
+        self.topo = ctc_topo
 
         ctc_topo_inv = k2.arc_sort(ctc_topo.invert_())
 

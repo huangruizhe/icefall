@@ -264,6 +264,27 @@ def get_parser():
         help="Whether to use half precision training.",
     )
 
+    parser.add_argument(
+        "--topo-type",
+        type=str,
+        default="ctc",
+        help="",
+    )
+
+    parser.add_argument(
+        "--warm-step",
+        type=int,
+        default=2000,
+        help="",
+    )
+
+    parser.add_argument(
+        "--curriculum",
+        type=str2bool,
+        default=False,
+        help="",
+    )
+
     return parser
 
 
@@ -324,7 +345,7 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 1,
+            "log_interval": 100,
             "reset_interval": 200,
             "valid_interval": 3000,  # For the 100h subset, use 800
             # parameters for conformer
@@ -520,7 +541,7 @@ def compute_loss(
     if isinstance(graph_compiler, BpeCtcTrainingGraphCompiler):
         # Works with a BPE model
         token_ids = graph_compiler.texts_to_ids(texts)
-        decoding_graph = graph_compiler.compile(token_ids)
+        decoding_graph = graph_compiler.compile(token_ids, modified=True)
     elif isinstance(graph_compiler, CtcTrainingGraphCompiler):
         # Works with a phone lexicon
         decoding_graph = graph_compiler.compile(texts)
@@ -684,7 +705,8 @@ def train_one_epoch(
 
         params.batch_idx_train += 1
         batch_size = len(batch["supervisions"]["text"])
-        batch_name = batch["supervisions"]["uttid"]
+        # batch_name = batch["supervisions"]["uttid"]
+        batch_name = [c.id for c in batch["supervisions"]["cut"]]
 
         with torch.cuda.amp.autocast(enabled=params.use_fp16):
             loss, loss_info = compute_loss(
@@ -848,6 +870,7 @@ def run(rank, world_size, args):
             device=device,
             sos_token="<sos/eos>",
             eos_token="<sos/eos>",
+            topo_type=params.topo_type,
         )
     elif "lang_phone" in str(params.lang_dir):
         assert params.att_rate == 0, (

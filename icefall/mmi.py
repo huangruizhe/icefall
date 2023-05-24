@@ -3,6 +3,7 @@ from typing import List
 import k2
 import torch
 from torch import nn
+# from wrapt_timeout_decorator import *
 
 from icefall.mmi_graph_compiler import MmiTrainingGraphCompiler
 
@@ -191,6 +192,7 @@ class LFMMILoss(nn.Module):
         self.use_pruned_intersect = use_pruned_intersect
         self.beam_size = beam_size
 
+    # @timeout(60)
     def forward(
         self,
         dense_fsa_vec: k2.DenseFsaVec,
