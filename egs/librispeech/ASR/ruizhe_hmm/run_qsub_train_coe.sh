@@ -35,7 +35,8 @@ export PYTHONPATH=/exp/rhuang/kaldifeat/build/lib:/exp/rhuang/kaldifeat/kaldifea
 
 # icefall
 # export PYTHONPATH=/exp/rhuang/icefall/:$PYTHONPATH
-export PYTHONPATH=/exp/rhuang/icefall_latest/:$PYTHONPATH
+# export PYTHONPATH=/exp/rhuang/icefall_latest/:$PYTHONPATH
+export PYTHONPATH=/exp/rhuang/icefall_align2/:$PYTHONPATH
 # export PYTHONPATH=/exp/rhuang/icefall/icefall/transformer_lm/:$PYTHONPATH
 
 # To verify SGE_HGR_gpu and CUDA_VISIBLE_DEVICES match for GPU jobs.
@@ -102,25 +103,39 @@ echo "hostname: `hostname`"
 #   --valid-interval 200
 
 # zipformer_hmm_ml on libri100
-./zipformer_mmi_hmm/train.py \
-  --world-size 4 \
-  --master-port 12345 \
-  --num-epochs 30 \
-  --start-epoch 1 \
-  --lang-dir data/lang_bpe_500 \
-  --exp-dir zipformer_mmi_hmm/exp/exp_libri_100_ml  \
-  --max-duration 500 \
-  --full-libri false \
-  --use-fp16 true \
-  --warm-step 90000000000 \
-  --num-workers 6 \
-  --ctc-beam-size 15 \
-  --sil-modeling true
+# ./zipformer_mmi_hmm/train.py \
+#   --world-size 4 \
+#   --master-port 12345 \
+#   --num-epochs 30 \
+#   --start-epoch 1 \
+#   --lang-dir data/lang_bpe_500 \
+#   --exp-dir zipformer_mmi_hmm/exp/exp_libri_100_ml  \
+#   --max-duration 500 \
+#   --full-libri false \
+#   --use-fp16 true \
+#   --warm-step 90000000000 \
+#   --num-workers 6 \
+#   --ctc-beam-size 15 \
+#   --sil-modeling true
 
   # --enable-spec-aug false \
 
-
-
+ngpus=4
+python zipformer_mmi/train.py \
+  --world-size $ngpus \
+  --master-port 12346 \
+  --num-epochs 30 \
+  --start-epoch 1 \
+  --lang-dir data/lang_bpe_500 \
+  --exp-dir zipformer_mmi/exp/exp_libri_100_hmm  \
+  --max-duration 1000 \
+  --use-fp16 true \
+  --save-every-n 20000 --exp-dir zipformer_mmi/exp/exp_ctc_mmi --topo-type "ctc" --warm-step 2000 --start-epoch 3 # --shuffle false --bucketing-sampler false --curriculum true
+# --warm-step 90000000000
+# --shuffle false --bucketing-sampler false
+# --start-epoch 3
+# --full-libri false
+# --base-lr 0.025
 
 
 

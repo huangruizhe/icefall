@@ -169,7 +169,7 @@ def main(params):
         biasing_list, rare_frequency, distractor_ratio = read_ref_biasing_list(params.context_dir / f"ref/{part}.biasing_{n_distractors}.tsv")
         logging.info(f"distractor_ratio = {distractor_ratio}")
 
-    if True:  # compute rare word count distribution
+    if False:  # compute rare word count distribution (how many rare words are there in each utterance?)
         from collections import Counter
         import numpy as np
 
@@ -200,6 +200,31 @@ def main(params):
         
         for x in np.arange(0, 1.05, 0.1):
             stats_with_ratio(stats, x)
+    
+    if True:  # get the train rare words stats
+        from collections import Counter
+        import lhotse
+        from lhotse import load_manifest, CutSet
+        from tqdm import tqdm
+        cuts_ = []
+        cuts = CutSet.from_file("data/fbank/librispeech_cuts_train-all-shuf.jsonl.gz")
+        logging.info("loaded cuts")
+        for c in tqdm(cuts):
+            if not c.id.endswith("sp0.9") and not c.id.endswith("sp1.1"):
+                cuts_.append(c)
+        logging.info(len(cuts_))
+
+        counter = Counter()
+        for c in cuts_:
+            text = c.supervisions[0].text
+            for w in text.split():
+                if w not in context_collector.common_words:
+                    counter[w] += 1
+
+        a = sorted(counter.items(), key=lambda item: (-item[1], item[0]))
+        with open("/export/fs04/a12/rhuang/icefall_align2/egs/librispeech/ASR/ruizhe_contextual/exp/train_rare_words.txt", "w") as fout:
+            for k, v in a:
+                print(f"{k}\t{v}", file=fout)
 
 
 if __name__ == '__main__':

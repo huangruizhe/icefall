@@ -164,6 +164,31 @@ def ref_to_biasing_ref2(cuts_file_name, context_collector):
         s = str(rare).replace("'", "\"")
         print(f"{uid}\t{text0}\t{s}\t{[]}")
 
+def get_train_rare_count(cuts_file_name, context_collector):
+    from collections import Counter
+    import lhotse
+    from lhotse import load_manifest, CutSet
+    from tqdm import tqdm
+    cuts_ = []
+    cuts = CutSet.from_file(cuts_file_name)
+    logging.info("loaded cuts")
+    for c in tqdm(cuts):
+        if not c.id.endswith("sp0.9") and not c.id.endswith("sp1.1"):
+            cuts_.append(c)
+    logging.info(len(cuts_))
+
+    counter = Counter()
+    for c in cuts_:
+        text = c.supervisions[0].text
+        for w in text.split():
+            if w not in context_collector.common_words:
+                counter[w] += 1
+
+    a = sorted(counter.items(), key=lambda item: (-item[1], item[0]))
+    with open("/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/ruizhe_contextual/exp/train_rare_words.txt", "w") as fout:
+        for k, v in a:
+            print(f"{k}\t{v}", file=fout)
+
 def main(params):
     logging.info("About to load context generator")
     params.context_dir = Path(params.context_dir)
@@ -186,9 +211,12 @@ def main(params):
 
     # cuts_file_name = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_dev.jsonl.gz"
     # cuts_file_name = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_val.jsonl.gz"
-    cuts_file_name = params.cuts_file_name
-    ref_to_biasing_ref(cuts_file_name, context_collector)
+    # cuts_file_name = params.cuts_file_name
+    # ref_to_biasing_ref(cuts_file_name, context_collector)
     # ref_to_biasing_ref2(cuts_file_name, context_collector)
+
+    cuts_file_name = "/export/fs04/a12/rhuang/icefall_align2/egs/spgispeech/ASR/data/manifests/cuts_train_shuf.jsonl.gz"
+    get_train_rare_count(cuts_file_name, context_collector)
 
     # for uid, context_rare_words in chain(
     #     context_collector.test_clean_biasing_list.items(),

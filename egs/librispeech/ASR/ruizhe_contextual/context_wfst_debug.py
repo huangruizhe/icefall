@@ -69,7 +69,7 @@ def main(params):
     fsa_list, fsa_sizes, num_words_per_utt2 = \
         context_collector.get_context_word_wfst(batch)
     
-    logging.info(f"{uid}: {fsa_sizes}")
+    logging.info(f"{uid}: fsa sizes: {fsa_sizes}")
     text_words = set(text.split())
     logging.info(f"{uid} rare words: {[w for w in text_words if w in context_collector.rare_words]}")
 
