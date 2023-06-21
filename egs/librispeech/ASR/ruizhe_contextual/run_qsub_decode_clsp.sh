@@ -5,7 +5,7 @@
 #$ -j y -o ruizhe_contextual/log/$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l ram_free=16G,mem_free=16G,gpu=1,hostname=!b*&!c18*&!c04*
+#$ -l ram_free=16G,mem_free=16G,gpu=1,hostname=!b*&!c18*&!c04*&!c07*
 #$ -q g.q
 
 # &!octopod*
@@ -55,6 +55,7 @@ exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c${n_distractors
 exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2
 # exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_no_stage1
 
+exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c100_reuse_decoder_stage2
 
 epochs=17
 epochs=30
@@ -86,7 +87,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             --decoding-method $m \
             --context-dir "data/fbai-speech/is21_deep_bias/" \
             --n-distractors $n_distractors \
-            --keep-ratio 1.0 --is-predefined true --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 45
+            --keep-ratio 1.0 --is-predefined true --n-distractors 100 --is-reused-context-encoder true
         # --is-full-context true
         # --n-distractors 0
         # --no-encoder-biasing true --no-decoder-biasing true
@@ -94,6 +95,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         # --is-pretrained-context-encoder true
         # --no-wfst-lm-biasing false --biased-lm-scale 9
         # --is-predefined true --no-wfst-lm-biasing false --biased-lm-scale 9 --no-encoder-biasing true --no-decoder-biasing true
+        #
+        # LM exp: --is-predefined true --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 45
       done
     done
   done

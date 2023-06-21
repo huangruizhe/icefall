@@ -75,6 +75,7 @@ from zipformer import Zipformer
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_encoder import ContextEncoder
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_encoder_lstm import ContextEncoderLSTM
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_encoder_pretrained import ContextEncoderPretrained
+from egs.librispeech.ASR.pruned_transducer_stateless7_context.context_encoder_reused import ContextEncoderReused
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.word_encoder_bert import BertEncoder
 from egs.librispeech.ASR.pruned_transducer_stateless7_context.word_encoder_fasttext import FastTextEncoder
 from biasing_module import BiasingModule
@@ -417,6 +418,34 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--is-reused-context-encoder",
+        type=str2bool,
+        default=False,
+        help="",
+    )
+
+    parser.add_argument(
+        "--relevance-learning",
+        type=str2bool,
+        default=False,
+        help="The model will learn about the positive samples in an upsampled way",
+    )
+
+    parser.add_argument(
+        "--irrelevance-learning",
+        type=str2bool,
+        default=False,
+        help="The model will learn massively about negative examples, where it needs to always choose <no-bias>",
+    )
+
+    parser.add_argument(
+        "--upsample-N",
+        type=int,
+        default=None,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -533,7 +562,7 @@ def get_joiner_model(params: AttributeDict) -> nn.Module:
     )
     return joiner
 
-def get_contextual_model(params: AttributeDict) -> nn.Module:
+def get_contextual_model(params: AttributeDict, decoder=None) -> nn.Module:
     context_dim = 128  # TODO: Hard-wired model size, which equals to the one in Amazon's paper
 
     # context_dim = 128  # 1.5%
@@ -545,6 +574,16 @@ def get_contextual_model(params: AttributeDict) -> nn.Module:
             # output_dim=params.joiner_dim,
             context_encoder_dim=params.context_embedding_size,
             output_dim=context_dim,
+            drop_out=0.1,
+        )
+    elif params.is_reused_context_encoder:
+        assert decoder is not None
+        context_encoder = ContextEncoderReused(
+            decoder=decoder,
+            decoder_dim=params.decoder_dim,
+            output_dim=context_dim,
+            num_lstm_layers=1,
+            num_lstm_directions=2,
             drop_out=0.1,
         )
     else:        
@@ -577,7 +616,7 @@ def get_transducer_model(params: AttributeDict) -> nn.Module:
     encoder = get_encoder_model(params)
     decoder = get_decoder_model(params)
     joiner = get_joiner_model(params)
-    context_encoder, encoder_biasing_adapter, decoder_biasing_adapter = get_contextual_model(params)
+    context_encoder, encoder_biasing_adapter, decoder_biasing_adapter = get_contextual_model(params, decoder=decoder)
 
     model = Transducer(
         encoder=encoder,
@@ -798,15 +837,19 @@ def compute_loss(
     word_list = word_list.to(device)
     # word_lengths = word_lengths.to(device)
     # num_words_per_utt = num_words_per_utt.to(device)
+    contexts = {
+        "mode": "get_context_word_list",
+        "word_list": word_list, 
+        "word_lengths": word_lengths, 
+        "num_words_per_utt": num_words_per_utt,
+    }
 
     with torch.set_grad_enabled(is_training):
         simple_loss, pruned_loss = model(
             x=feature,
             x_lens=feature_lens,
             y=y,
-            word_list=word_list, 
-            word_lengths=word_lengths, 
-            num_words_per_utt=num_words_per_utt,
+            contexts=contexts,
             prune_range=params.prune_range,
             am_scale=params.am_scale,
             lm_scale=params.lm_scale,
@@ -1147,6 +1190,8 @@ def run(rank, world_size, args):
 
     logging.info("About to create model")
     model = get_transducer_model(params)
+
+    model.params = params
 
     # Freeze the parameters of the ASR model
     for param in itertools.chain(

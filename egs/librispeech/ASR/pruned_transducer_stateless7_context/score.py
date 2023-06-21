@@ -254,11 +254,11 @@ def main(args):
                 f"{uttid} missing in hyps! Set `--lenient` flag to ignore this error."
             )
 
-    train_rare_count = dict()
-    with open("", "r") as fin:
-        for line in fin:
-            w, c = line.strip().split()
-            train_rare_count[w] = int(c)
+    # train_rare_count = dict()
+    # with open("", "r") as fin:
+    #     for line in fin:
+    #         w, c = line.strip().split()
+    #         train_rare_count[w] = int(c)
     
     test_rare_count = dict()
 

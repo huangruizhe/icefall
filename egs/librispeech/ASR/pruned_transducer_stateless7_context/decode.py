@@ -489,6 +489,13 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--is-reused-context-encoder",
+        type=str2bool,
+        default=False,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser

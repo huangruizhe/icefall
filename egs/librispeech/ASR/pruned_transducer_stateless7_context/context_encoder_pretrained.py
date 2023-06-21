@@ -34,6 +34,8 @@ class ContextEncoderPretrained(ContextEncoder):
         )
         self.sigmoid = torch.nn.Sigmoid()
 
+        self.bi_encoders = False
+
     def forward(
         self, 
         word_list, 
