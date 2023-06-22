@@ -238,3 +238,6 @@ python pruned_transducer_stateless7_context/train.py \
 # /exp/rhuang/icefall_latest/egs/librispeech/ASR/ruizhe_contextual/log/log-train-10600438.out
 # /exp/rhuang/icefall_latest/egs/librispeech/ASR/ruizhe_contextual/log/log-train-10602901.out
 
+
+# Tensorboard:
+# ln -s /exp/rhuang/librispeech/pretrained2/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/exp/tensorboard/events.out.tfevents.1667739880.de-74279-k2-train-2-0602201035-5fb6d86964-mclm7.2931411.0 pruned_transducer_stateless7_context/exp/exp_libri_full_c100_reuse_decoder_nostage1/tensorboard/.

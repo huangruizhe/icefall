@@ -5,10 +5,11 @@
 #$ -j y -o ruizhe_contextual/log/$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l ram_free=16G,mem_free=16G,gpu=1,hostname=!b*&!c18*&!c04*&!c07*
+#$ -l ram_free=16G,mem_free=16G,gpu=1,hostname=!b*
 #$ -q g.q
 
 # &!octopod*
+# &!c18*&!c04*&!c07*
 
 #### Activate dev environments and call programs
 # mamba activate /home/rhuang/mambaforge/envs/efrat
@@ -55,7 +56,8 @@ exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c${n_distractors
 exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2
 # exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_no_stage1
 
-exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c100_reuse_decoder_stage2
+# exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c100_reuse_decoder_stage2
+exp_dir=pruned_transducer_stateless7_context/exp/exp_libri_full_c100_reuse_decoder_nostage1/
 
 epochs=17
 epochs=30
