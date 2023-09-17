@@ -278,6 +278,74 @@ class AsrModel(nn.Module):
 
         return simple_loss, pruned_loss
 
+    def _disable_neighboring(self, mask):
+        # mask is a 1D boolean list
+        prev = False
+        i = 0
+        while i < len(mask):
+            if mask[i] and prev:
+                mask[i] = False
+            prev = mask[i]
+            i += 1
+        return mask
+
+    def frame_dropout(
+            self,
+            log_probs,
+            input_lengths,
+            max_drop_out_rate,
+            frame_length_threshold=25,
+            apply_disable_neighboring=True,
+    ):
+        """
+        Randomly throw away frames by the probability of drop_out_rate
+        https://github.com/huangruizhe/audio/blob/exp_replication/examples/asr/librispeech_conformer_ctc2/loss.py
+
+        Args:
+          log_probs: 
+            (N, T, C)
+          input_lengths: 
+            (N, )
+          drop_out_rate: 
+            (N, )
+        Returns:
+          new_log_probs: 
+            (N, T, C)
+          new_lengths:
+            (N, )
+        """
+        rd = torch.rand(input_lengths.size(0) * 2)
+        rd1 = rd[:input_lengths.size(0)] < 0.9  # keep 10% of utterances not changed
+        rd2 = rd[input_lengths.size(0):] * max_drop_out_rate
+        frame_dropout_rate = (rd1 * rd2).tolist()
+
+        new_log_probs = []
+        new_lengths = input_lengths.clone()
+        for i in range(log_probs.size(0)):
+            len_orig = int(input_lengths[i].item())
+
+            if len_orig <= frame_length_threshold:  # will not dropout short utterances
+                new_log_probs.append(log_probs[i][:len_orig])
+                continue
+
+            drop_out_rate = frame_dropout_rate[i]
+            num_throw_away = round(len_orig * drop_out_rate)
+            if num_throw_away == 0:
+                new_log_probs.append(log_probs[i][:len_orig])
+                continue
+
+            mask = torch.rand(len_orig).le(drop_out_rate)
+            if apply_disable_neighboring:
+              mask = self._disable_neighboring(mask)
+            num_throw_away = int(mask.sum().item())
+            len_new = len_orig - num_throw_away
+            
+            new_log_probs.append(log_probs[i][(~mask).nonzero().squeeze()])
+            new_lengths[i] = len_new
+
+        new_log_probs = torch.nn.utils.rnn.pad_sequence(new_log_probs)
+        return new_log_probs, new_lengths
+
     def forward(
         self,
         x: torch.Tensor,
@@ -324,6 +392,16 @@ class AsrModel(nn.Module):
 
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
+
+        # apply encoder posterior dropout
+        max_frame_dropout_rate = 0
+        if max_frame_dropout_rate > 0:
+            log_probs, input_lengths = self.frame_dropout(
+                log_probs, 
+                input_lengths, 
+                max_frame_dropout_rate,
+                apply_disable_neighboring=True,
+            )
 
         row_splits = y.shape.row_splits(1)
         y_lens = row_splits[1:] - row_splits[:-1]

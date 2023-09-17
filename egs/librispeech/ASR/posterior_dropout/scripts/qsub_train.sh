@@ -6,7 +6,7 @@
 #$ -M ruizhe@jhu.edu
 #$ -m e
 #$ -l mem_free=20G,h_rt=600:00:00,gpu=4
-#$ -q gpu.q@@rtx
+#$ -q gpu.q@@v100
 
 # #$ -q gpu.q@@v100
 # #$ -q gpu.q@@rtx
@@ -49,12 +49,36 @@ echo "current path:" `pwd`
 
 # export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2:$PYTHONPATH
 
-exp_dir=posterior_dropout/exp-ctc
+# exp_dir=posterior_dropout/exp-ctc
+exp_dir=posterior_dropout/exp-transducer
+
 echo
 echo "exp_dir:" $exp_dir
 echo
 
-# train
+####################################
+# train ctc
+####################################
+# python posterior_dropout/train.py \
+#   --world-size 4 \
+#   --num-epochs 40 \
+#   --start-epoch 1 \
+#   --use-fp16 true \
+#   --master-port 12535 \
+#   --causal 0 \
+#   --full-libri true \
+#   --use-transducer false \
+#   --use-ctc true \
+#   --ctc-loss-scale 0.2 \
+#   --exp-dir $exp_dir \
+#   --max-duration 800 # \
+#   # --start-epoch 35
+
+# https://tensorboard.dev/experiment/guzomYumRDWyRoDtrnDxCg/#scalars
+
+####################################
+# train transducer
+####################################
 python posterior_dropout/train.py \
   --world-size 4 \
   --num-epochs 40 \
@@ -63,12 +87,14 @@ python posterior_dropout/train.py \
   --master-port 12535 \
   --causal 0 \
   --full-libri true \
-  --use-transducer false \
-  --use-ctc true \
+  --use-transducer true \
+  --use-ctc false \
   --ctc-loss-scale 0.2 \
-  --exp-dir posterior_dropout/exp-ctc \
-  --max-duration 800
+  --exp-dir $exp_dir \
+  --max-duration 800 # \
+  # --start-epoch 35
 
-
+####################################
 # tensorboard
+####################################
 # tensorboard dev upload --logdir /exp/rhuang/meta/icefall/egs/librispeech/ASR/$exp_dir/tensorboard --description `pwd`
