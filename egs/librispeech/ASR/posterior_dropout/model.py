@@ -290,12 +290,13 @@ class AsrModel(nn.Module):
         return mask
 
     def frame_dropout(
-            self,
-            log_probs,
-            input_lengths,
-            max_drop_out_rate,
-            frame_length_threshold=25,
-            apply_disable_neighboring=True,
+        self,
+        log_probs,
+        input_lengths,
+        max_drop_out_rate,
+        frame_length_threshold=25,
+        apply_disable_neighboring=True,
+        changed_ratio=0.9,
     ):
         """
         Randomly throw away frames by the probability of drop_out_rate
@@ -315,7 +316,7 @@ class AsrModel(nn.Module):
             (N, )
         """
         rd = torch.rand(input_lengths.size(0) * 2)
-        rd1 = rd[:input_lengths.size(0)] < 0.9  # keep 10% of utterances not changed
+        rd1 = rd[:input_lengths.size(0)] < changed_ratio  # keep 10% of utterances not changed
         rd2 = rd[input_lengths.size(0):] * max_drop_out_rate
         frame_dropout_rate = (rd1 * rd2).tolist()
 
@@ -343,7 +344,7 @@ class AsrModel(nn.Module):
             new_log_probs.append(log_probs[i][(~mask).nonzero().squeeze()])
             new_lengths[i] = len_new
 
-        new_log_probs = torch.nn.utils.rnn.pad_sequence(new_log_probs)
+        new_log_probs = torch.nn.utils.rnn.pad_sequence(new_log_probs, batch_first=True)
         return new_log_probs, new_lengths
 
     def forward(
@@ -354,6 +355,7 @@ class AsrModel(nn.Module):
         prune_range: int = 5,
         am_scale: float = 0.0,
         lm_scale: float = 0.0,
+        is_training: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -394,13 +396,15 @@ class AsrModel(nn.Module):
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
 
         # apply encoder posterior dropout
-        max_frame_dropout_rate = 0
-        if max_frame_dropout_rate > 0:
-            log_probs, input_lengths = self.frame_dropout(
-                log_probs, 
-                input_lengths, 
+        max_frame_dropout_rate = 0.3
+        changed_ratio = 0.8
+        if is_training and max_frame_dropout_rate > 0:
+            encoder_out, encoder_out_lens = self.frame_dropout(
+                encoder_out, 
+                encoder_out_lens, 
                 max_frame_dropout_rate,
                 apply_disable_neighboring=True,
+                changed_ratio=changed_ratio,
             )
 
         row_splits = y.shape.row_splits(1)

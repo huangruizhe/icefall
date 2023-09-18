@@ -6,7 +6,7 @@
 #$ -M ruizhe@jhu.edu
 #$ -m e
 #$ -l mem_free=20G,h_rt=600:00:00,gpu=4
-#$ -q gpu.q@@v100
+#$ -q gpu.q@@rtx
 
 # #$ -q gpu.q@@v100
 # #$ -q gpu.q@@rtx
@@ -50,10 +50,17 @@ echo "current path:" `pwd`
 # export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2:$PYTHONPATH
 
 # exp_dir=posterior_dropout/exp-ctc
-exp_dir=posterior_dropout/exp-transducer
+# exp_dir=posterior_dropout/exp-transducer
+exp_dir=posterior_dropout/exp-transducer-dp0.3-chng0.8
+exp_dir=posterior_dropout/exp-transducer-dp0.3-chng0.8-libri100
 
 echo
 echo "exp_dir:" $exp_dir
+echo
+
+echo 
+echo "max_frame_dropout_rate = 0.3"
+echo "changed_ratio = 0.8"
 echo
 
 ####################################
@@ -74,6 +81,7 @@ echo
 #   --max-duration 800 # \
 #   # --start-epoch 35
 
+# CTC:
 # https://tensorboard.dev/experiment/guzomYumRDWyRoDtrnDxCg/#scalars
 
 ####################################
@@ -86,13 +94,17 @@ python posterior_dropout/train.py \
   --use-fp16 true \
   --master-port 12535 \
   --causal 0 \
-  --full-libri true \
+  --full-libri false \
   --use-transducer true \
   --use-ctc false \
   --ctc-loss-scale 0.2 \
   --exp-dir $exp_dir \
   --max-duration 800 # \
   # --start-epoch 35
+
+# Transducer:
+# https://tensorboard.dev/experiment/C87OKiEzRVqBFA4RaBS7Ew/
+
 
 ####################################
 # tensorboard

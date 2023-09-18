@@ -59,26 +59,58 @@ echo
 ####################################
 # decode ctc
 ####################################
-for m in ctc-decoding 1best nbest nbest-rescoring whole-lattice-rescoring; do
-  python posterior_dropout/ctc_decode.py \
-      --epoch 40 \
-      --avg 16 \
-      --exp-dir $exp_dir \
-      --use-transducer false \
-      --use-ctc true \
-      --max-duration 300 \
-      --causal 0 \
-      --num-paths 100 \
-      --nbest-scale 1.0 \
-      --hlg-scale 0.6 \
-      --decoding-method $m
-done
+# for m in ctc-decoding 1best nbest nbest-rescoring whole-lattice-rescoring; do
+#   python posterior_dropout/ctc_decode.py \
+#       --epoch 40 \
+#       --avg 16 \
+#       --exp-dir $exp_dir \
+#       --use-transducer false \
+#       --use-ctc true \
+#       --max-duration 300 \
+#       --causal 0 \
+#       --num-paths 100 \
+#       --nbest-scale 1.0 \
+#       --hlg-scale 0.6 \
+#       --decoding-method $m
+# done
 
 
 ####################################
 # train transducer
 ####################################
-
+for m in fast_beam_search fast_beam_search_nbest modified_beam_search; do
+  if [ "$m" = "modified_beam_search" ]; then
+    ./posterior_dropout/decode.py \
+      --epoch 40 \
+      --avg 16 \
+      --exp-dir $exp_dir \
+      --max-duration 600 \
+      --decoding-method modified_beam_search \
+      --beam-size 4
+  elif [ "$m" = "fast_beam_search" ]; then
+    ./posterior_dropout/decode.py \
+      --epoch 40 \
+      --avg 16 \
+      --exp-dir $exp_dir \
+      --max-duration 600 \
+      --decoding-method fast_beam_search \
+      --beam 20.0 \
+      --max-contexts 8 \
+      --max-states 64
+  elif [ "$m" = "fast_beam_search_nbest" ]; then
+    ./posterior_dropout/decode.py \
+      --epoch 40 \
+      --avg 16 \
+      --exp-dir $exp_dir \
+      --max-duration 600 \
+      --decoding-method fast_beam_search_nbest \
+      --beam 20.0 \
+      --max-contexts 8 \
+      --max-states 64 \
+      --num-paths 200 \
+      --nbest-scale 0.5
+  fi
+done
 
 
 ####################################
