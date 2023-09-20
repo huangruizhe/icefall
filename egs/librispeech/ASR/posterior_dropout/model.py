@@ -293,6 +293,7 @@ class AsrModel(nn.Module):
         self,
         log_probs,
         input_lengths,
+        target_lengths,
         max_drop_out_rate,
         frame_length_threshold=25,
         apply_disable_neighboring=True,
@@ -307,8 +308,10 @@ class AsrModel(nn.Module):
             (N, T, C)
           input_lengths: 
             (N, )
-          drop_out_rate: 
+          target_lengths:
             (N, )
+          max_drop_out_rate: 
+            float in [0, 1)
         Returns:
           new_log_probs: 
             (N, T, C)
@@ -324,17 +327,18 @@ class AsrModel(nn.Module):
         new_lengths = input_lengths.clone()
         for i in range(log_probs.size(0)):
             len_orig = int(input_lengths[i].item())
+            tgt_len = int(target_lengths[i].item())
 
             if len_orig <= frame_length_threshold:  # will not dropout short utterances
                 new_log_probs.append(log_probs[i][:len_orig])
                 continue
 
-            drop_out_rate = frame_dropout_rate[i]
+            drop_out_rate = min(frame_dropout_rate[i], 1 - tgt_len / len_orig)
             num_throw_away = round(len_orig * drop_out_rate)
             if num_throw_away == 0:
                 new_log_probs.append(log_probs[i][:len_orig])
                 continue
-
+          
             mask = torch.rand(len_orig).le(drop_out_rate)
             if apply_disable_neighboring:
               mask = self._disable_neighboring(mask)
@@ -395,20 +399,21 @@ class AsrModel(nn.Module):
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
 
+        row_splits = y.shape.row_splits(1)
+        y_lens = row_splits[1:] - row_splits[:-1]
+
         # apply encoder posterior dropout
-        max_frame_dropout_rate = 0.3
+        max_frame_dropout_rate = 0.2
         changed_ratio = 0.8
         if is_training and max_frame_dropout_rate > 0:
             encoder_out, encoder_out_lens = self.frame_dropout(
                 encoder_out, 
                 encoder_out_lens, 
+                y_lens,
                 max_frame_dropout_rate,
-                apply_disable_neighboring=True,
+                apply_disable_neighboring=False,
                 changed_ratio=changed_ratio,
             )
-
-        row_splits = y.shape.row_splits(1)
-        y_lens = row_splits[1:] - row_splits[:-1]
 
         if self.use_transducer:
             # Compute transducer loss
