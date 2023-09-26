@@ -50,7 +50,9 @@ echo "current path:" `pwd`
 # export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2:$PYTHONPATH
 
 # exp_dir=posterior_dropout/exp-ctc
-exp_dir=posterior_dropout/exp-transducer
+# exp_dir=posterior_dropout/exp-transducer
+# exp_dir=posterior_dropout/exp-transducer-dp0.3-chng0.8-libri100
+exp_dir=posterior_dropout/exp-transducer-dp0.2-chng0.8-nei
 
 echo
 echo "exp_dir:" $exp_dir

@@ -55,14 +55,14 @@ echo "current path:" `pwd`
 # exp_dir=posterior_dropout/exp-transducer-dp0.3-chng0.8-libri100
 # exp_dir=posterior_dropout/exp-transducer-libri100
 # exp_dir=posterior_dropout/exp-transducer-dp0.5-chng0.8-libri100
-exp_dir=posterior_dropout/exp-transducer-dp0.1-chng0.8-libri100-nei
+exp_dir=posterior_dropout/exp-transducer-dp0.2-chng0.8-libri100-nei-double
 
 echo
 echo "exp_dir:" $exp_dir
 echo
 
 echo 
-echo "max_frame_dropout_rate = 0.1, no random"
+echo "max_frame_dropout_rate = 0.2, no random"
 echo "changed_ratio = 0.8"
 echo
 
@@ -102,8 +102,8 @@ python posterior_dropout3/train.py \
   --use-ctc false \
   --ctc-loss-scale 0.2 \
   --exp-dir $exp_dir \
-  --max-duration 800  \
-  --start-epoch 13
+  --max-duration 800 # \
+  #--start-epoch 13
 
 # Transducer:
 # https://tensorboard.dev/experiment/C87OKiEzRVqBFA4RaBS7Ew/

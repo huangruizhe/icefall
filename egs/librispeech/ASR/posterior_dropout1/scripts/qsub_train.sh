@@ -55,17 +55,16 @@ echo "current path:" `pwd`
 # exp_dir=posterior_dropout/exp-transducer-dp0.3-chng0.8-libri100
 # exp_dir=posterior_dropout/exp-transducer-libri100
 # exp_dir=posterior_dropout/exp-transducer-dp0.5-chng0.8-libri100
-exp_dir=posterior_dropout/exp-transducer-dp0.2-chng0.8-nei
-# exp_dir=posterior_dropout/exp-ctc-dp0.2-chng0.8-nei
+exp_dir=posterior_dropout/exp-transducer-libri100-rd-s1.0-p0.5
 
 echo
 echo "exp_dir:" $exp_dir
 echo
 
-echo 
-echo "max_frame_dropout_rate = 0.2, nei"
-echo "changed_ratio = 0.8"
-echo
+# echo 
+# echo "max_frame_dropout_rate = 0.3"
+# echo "changed_ratio = 0.8"
+# echo
 
 ####################################
 # train ctc
@@ -91,20 +90,20 @@ echo
 ####################################
 # train transducer
 ####################################
-python posterior_dropout/train.py \
+python posterior_dropout2/train.py \
   --world-size 4 \
-  --num-epochs 40 \
+  --num-epochs 30 \
   --start-epoch 1 \
   --use-fp16 true \
   --master-port 12535 \
   --causal 0 \
-  --full-libri true \
+  --full-libri false \
   --use-transducer true \
   --use-ctc false \
   --ctc-loss-scale 0.2 \
   --exp-dir $exp_dir \
-  --max-duration 800 \
-  --start-epoch 37
+  --max-duration 800 # \
+  # --start-epoch 8
 
 # Transducer:
 # https://tensorboard.dev/experiment/C87OKiEzRVqBFA4RaBS7Ew/
@@ -115,4 +114,3 @@ python posterior_dropout/train.py \
 # tensorboard
 ####################################
 # tensorboard dev upload --logdir /exp/rhuang/meta/icefall/egs/librispeech/ASR/$exp_dir/tensorboard --description `pwd`
-# tensorboard dev upload --logdir $exp_dir/tensorboard --description `pwd`/$exp_dir/

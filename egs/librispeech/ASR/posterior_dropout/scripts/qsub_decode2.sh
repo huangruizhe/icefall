@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #$ -wd /exp/rhuang/meta/icefall/egs/librispeech/ASR/
 #$ -V
-#$ -N train_posterior_dropout
+#$ -N decode_posterior_dropout
 #$ -j y -o /exp/rhuang/meta/icefall/egs/librispeech/ASR/log/log-$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l mem_free=20G,h_rt=600:00:00,gpu=4
-#$ -q gpu.q@@v100
+#$ -l mem_free=20G,h_rt=600:00:00,gpu=1
+#$ -q gpu.q@@rtx
 
 # #$ -q gpu.q@@v100
 # #$ -q gpu.q@@rtx
@@ -51,68 +51,73 @@ echo "current path:" `pwd`
 
 # exp_dir=posterior_dropout/exp-ctc
 # exp_dir=posterior_dropout/exp-transducer
-# exp_dir=posterior_dropout/exp-transducer-dp0.3-chng0.8
 # exp_dir=posterior_dropout/exp-transducer-dp0.3-chng0.8-libri100
-# exp_dir=posterior_dropout/exp-transducer-libri100
 # exp_dir=posterior_dropout/exp-transducer-dp0.5-chng0.8-libri100
-exp_dir=posterior_dropout/exp-transducer-dp0.2-chng0.8-nei
-# exp_dir=posterior_dropout/exp-ctc-dp0.2-chng0.8-nei
+exp_dir=posterior_dropout/exp-transducer-libri100-rd-s1.0-p0.5/
 
 echo
 echo "exp_dir:" $exp_dir
 echo
 
-echo 
-echo "max_frame_dropout_rate = 0.2, nei"
-echo "changed_ratio = 0.8"
-echo
-
 ####################################
-# train ctc
+# decode ctc
 ####################################
-# python posterior_dropout/train.py \
-#   --world-size 4 \
-#   --num-epochs 40 \
-#   --start-epoch 1 \
-#   --use-fp16 true \
-#   --master-port 12535 \
-#   --causal 0 \
-#   --full-libri true \
-#   --use-transducer false \
-#   --use-ctc true \
-#   --ctc-loss-scale 0.2 \
-#   --exp-dir $exp_dir \
-#   --max-duration 800 # \
-#   # --start-epoch 35
+# for m in ctc-decoding 1best nbest nbest-rescoring whole-lattice-rescoring; do
+#   python posterior_dropout/ctc_decode.py \
+#       --epoch 40 \
+#       --avg 16 \
+#       --exp-dir $exp_dir \
+#       --use-transducer false \
+#       --use-ctc true \
+#       --max-duration 300 \
+#       --causal 0 \
+#       --num-paths 100 \
+#       --nbest-scale 1.0 \
+#       --hlg-scale 0.6 \
+#       --decoding-method $m
+# done
 
-# CTC:
-# https://tensorboard.dev/experiment/guzomYumRDWyRoDtrnDxCg/#scalars
 
 ####################################
 # train transducer
 ####################################
-python posterior_dropout/train.py \
-  --world-size 4 \
-  --num-epochs 40 \
-  --start-epoch 1 \
-  --use-fp16 true \
-  --master-port 12535 \
-  --causal 0 \
-  --full-libri true \
-  --use-transducer true \
-  --use-ctc false \
-  --ctc-loss-scale 0.2 \
-  --exp-dir $exp_dir \
-  --max-duration 800 \
-  --start-epoch 37
+# fast_beam_search fast_beam_search_nbest 
+for m in fast_beam_search fast_beam_search_nbest modified_beam_search; do
+  if [ "$m" = "modified_beam_search" ]; then
+    ./posterior_dropout/decode.py \
+      --epoch 30 \
+      --avg 10 \
+      --exp-dir $exp_dir \
+      --max-duration 600 \
+      --decoding-method modified_beam_search \
+      --beam-size 8
+  elif [ "$m" = "fast_beam_search" ]; then
+    ./posterior_dropout/decode.py \
+      --epoch 30 \
+      --avg 10 \
+      --exp-dir $exp_dir \
+      --max-duration 600 \
+      --decoding-method fast_beam_search \
+      --beam 20.0 \
+      --max-contexts 8 \
+      --max-states 64
+  elif [ "$m" = "fast_beam_search_nbest" ]; then
+    ./posterior_dropout/decode.py \
+      --epoch 30 \
+      --avg 10 \
+      --exp-dir $exp_dir \
+      --max-duration 600 \
+      --decoding-method fast_beam_search_nbest \
+      --beam 20.0 \
+      --max-contexts 8 \
+      --max-states 64 \
+      --num-paths 200 \
+      --nbest-scale 0.5
+  fi
+done
 
-# Transducer:
-# https://tensorboard.dev/experiment/C87OKiEzRVqBFA4RaBS7Ew/
-# Transducer pos-0.3-0.8 libri100
-# https://tensorboard.dev/experiment/iM14ORI9TqWExRCqk3UAQw/
 
 ####################################
 # tensorboard
 ####################################
 # tensorboard dev upload --logdir /exp/rhuang/meta/icefall/egs/librispeech/ASR/$exp_dir/tensorboard --description `pwd`
-# tensorboard dev upload --logdir $exp_dir/tensorboard --description `pwd`/$exp_dir/
