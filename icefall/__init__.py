@@ -1,12 +1,6 @@
 # isort:skip_file
 
-from . import (
-    checkpoint,
-    decode,
-    dist,
-    env,
-    utils
-)
+from . import checkpoint, decode, dist, env, utils
 
 from .byte_utils import (
     byte_decode,
@@ -80,3 +74,5 @@ from .utils import (
 from .ngram_lm import NgramLm, NgramLmStateCost
 
 from .lm_wrapper import LmScorer
+
+from .biased_lm import BiasedNgramLm, BiasedNgramLmStateBonus
