@@ -153,7 +153,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             --feedforward-dims  "1024,1024,2048,2048,1024" \
             --max-duration 600 \
             --decoding-method $m \
-            --context-dir "data/uniphore_contexts/" \
+            --context-dir "/exp/rhuang/meta/icefall/egs/librispeech/ASR/data/uniphore_contexts/" \
             --n-distractors $n_distractors \
             --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 26
             # --keep-ratio 1.0 --is-predefined true --n-distractors 100 --is-reused-context-encoder true
