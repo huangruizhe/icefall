@@ -93,7 +93,7 @@ if true; then
       --start-epoch 2 \
       --num-epochs 30 \
       --is-bi-context-encoder false \
-      --is-pretrained-context-encoder true \
+      --is-pretrained-context-encoder false \
       --is-full-context true \
       --n-distractors $n_distractors
 fi

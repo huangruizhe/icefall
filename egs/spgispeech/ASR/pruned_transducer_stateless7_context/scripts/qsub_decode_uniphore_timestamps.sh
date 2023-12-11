@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-#$ -wd /exp/rhuang/meta/icefall/egs/librispeech/ASR/
+#$ -wd /exp/rhuang/meta/icefall/egs/spgispeech/ASR/
 #$ -V
 #$ -N decode_context
-#$ -j y -o /exp/rhuang/meta/icefall/egs/librispeech/ASR/log/log-$JOB_NAME-$JOB_ID.out
+#$ -j y -o log/log-$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
 #$ -l mem_free=20G,h_rt=600:00:00,gpu=1,hostname=!r7n07*
-#$ -q gpu.q@@rtx
+#$ -q gpu.q@@v100
 
 # #$ -q gpu.q@@v100
 # #$ -q gpu.q@@rtx
@@ -18,7 +18,7 @@
 # hostname
 # nvidia-smi
 
-# conda activate aligner5
+# conda activate /home/hltcoe/rhuang/mambaforge/envs/aligner5
 export PATH="/home/hltcoe/rhuang/mambaforge/envs/aligner5/bin/":$PATH
 module load cuda11.7/toolkit
 module load cudnn/8.5.0.96_cuda11.x
@@ -49,7 +49,7 @@ echo "current path:" `pwd`
 
 # export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2:$PYTHONPATH
 
-exp_dir=/exp/rhuang/icefall_latest/egs/librispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2/
+exp_dir=/exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/
 
 echo
 echo "exp_dir:" $exp_dir
@@ -121,7 +121,8 @@ echo
 # decode transducer with contexts
 ####################################
 n_distractors=100
-epochs=30
+epochs=15
+epochs=21
 avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 manifest=/exp/draj/jsalt2023/icefall/egs/librispeech/ASR/data/manifests/
@@ -129,8 +130,6 @@ manifest=/exp/draj/jsalt2023/icefall/egs/librispeech/ASR/data/manifests/
 stage=1
 stop_stage=1
 echo "Stage: $stage"
-
-cuda_id=`env | grep CUDA_VISIBLE_DEVICES | cut -d'=' -f2`
 
 # download model from coe
 # mkdir -p $exp_dir
@@ -144,33 +143,37 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
       for avg in $avgs; do
         # python -m pdb -c continue
         # ./pruned_transducer_stateless7_context/decode.py \
-        ./pruned_transducer_stateless7_context/decode_uniphore.py \
+        # ./pruned_transducer_stateless7_context/decode_uniphore.py \
+        # ./pruned_transducer_stateless7_context/decode_ec21.py \
+        # ./pruned_transducer_stateless7_context/decode_ec21_slides.py \
+        # ./pruned_transducer_stateless7_context/decode_ec21_slides.py \
+        ./pruned_transducer_stateless7_context/decode_ec21_gettimestamps.py \
             --epoch $epoch \
             --avg $avg \
             --use-averaged-model $use_averaged_model \
             --exp-dir $exp_dir \
-            --manifest-dir $manifest \
-            --feedforward-dims  "1024,1024,2048,2048,1024" \
+            --bpe-model "/exp/rhuang/meta/icefall/egs/spgispeech/ASR/data/lang_bpe_500/bpe.model" \
             --max-duration 600 \
             --decoding-method $m \
-            --context-dir "/exp/rhuang/meta/icefall/egs/librispeech/ASR/data/uniphore_contexts/" \
+            --beam-size 4 \
+            --context-dir "/exp/rhuang/meta/icefall/egs/spgispeech/ASR/data/uniphore_contexts/" \
             --n-distractors $n_distractors \
-            --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 26
-            # --keep-ratio 1.0 --is-predefined true --n-distractors 100 --is-reused-context-encoder true
-        # --is-full-context true
-        # --n-distractors 0
-        # --no-encoder-biasing true --no-decoder-biasing true
-        # --is-predefined true
-        # --is-pretrained-context-encoder true
-        # --no-wfst-lm-biasing false --biased-lm-scale 9
-        # --is-predefined true --no-wfst-lm-biasing false --biased-lm-scale 9 --no-encoder-biasing true --no-decoder-biasing true
-        # --cuda-id $cuda_id \
-        #
-        # LM exp: --is-predefined true --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 45
+            --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing true --biased-lm-scale 18 \
+            --part 0/4
+            # --is-predefined false --n-distractors 500 --no-encoder-biasing false --no-decoder-biasing false --no-wfst-lm-biasing false --biased-lm-scale 12 --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_slides_context_names" --is-predefined true --is-bi-context-encoder true
+            # --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 12 --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_slides_context_names" --is-predefined true
+
+            # --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 14
+            # --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_slides_context" --is-predefined true
+            # --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_slides_context_names" --is-predefined true
+            # --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_biasing_list/distractor_list" --is-predefined true
+            # --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_biasing_list/oracle_list" --is-predefined true
+            # --is-bi-context-encoder true
       done
     done
   done
 fi
+
 
 ####################################
 # tensorboard
@@ -192,35 +195,15 @@ fi
 # python ./scripts/compute_rare_wer.py   --context-dir $contexts   --lang-dir ../data/lang_bpe_500   --per-utt $per_utt
 
 ####################################
-# To Mahsa
+# Some results
 ####################################
 
-# # env and pytorch
-# export PATH="/exp/rhuang/mambaforge/envs/icefall2/bin/":$PATH 
-# export PATH="/exp/rhuang/gcc-7.2.0/mybuild/bin":$PATH 
-# export PATH=/exp/rhuang/cuda-10.2/bin/:$PATH
-# export LD_LIBRARY_PATH=/exp/rhuang/cuda-10.2/lib64/:$LD_LIBRARY_PATH
-# export LD_LIBRARY_PATH=/exp/rhuang/gcc-7.2.0/mybuild/lib64:$LD_LIBRARY_PATH
+# Decode spgispeech and alignment results:
+# logs:       /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/log-decode-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-003509-663-2023-12-10-19-35-09
+# recogs:     /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/recogs-spgispeech-0-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-003509-663.txt
+#             /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/recogs-spgispeech-1-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-003636-562.txt
+#             /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/recogs-spgispeech-2-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-003644-428.txt
+#             /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/recogs-spgispeech-3-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-003649-266.txt
+# timestamps: **/timestamps-*
 
-# # k2
-# K2_ROOT=/exp/rhuang/k2/
-# export PYTHONPATH=$K2_ROOT/k2/python:$PYTHONPATH # for `import k2`
-# export PYTHONPATH=$K2_ROOT/build_debug_cuda10.2/lib:$PYTHONPATH # for `import _k2`
-
-# # kaldifeat
-# export PYTHONPATH=/exp/rhuang/kaldifeat/build/lib:/exp/rhuang/kaldifeat/kaldifeat/python:$PYTHONPATH
-
-# # icefall
-# export PYTHONPATH=/exp/rhuang/meta/icefall:$PYTHONPATH
-
-# qsub -j y -q gpu.q -l num_proc=2,mem_free=16G,gpu=1,h_rt=24:00:00 sh
-
-# #!/bin/sh
-# cd /exp/mmohammadi/icefall_ray/egs/librispeech/ASR
-# sh pruned_transducer_stateless7_context/scripts/qsub_decode_uniphore.sh
-
-# per_utt=/exp/mmohammadi/icefall_ray/egs/librispeech/ASR/pruned_transducer_stateless7_context/modified_beam_search/recogs-healthcare-epoch-30-avg-1-modified_beam_search-beam-size-4-wfst-biasing-26.0-20231206-204301-261.txt
-# contexts=/exp/rhuang/icefall_latest/egs/spgispeech/ASR/data/libri_rare_words/
-# cd /exp/mmohammadi/icefall_ray/egs/spgispeech/ASR/pruned_transducer_stateless7_context/
-# python ./scripts/compute_rare_wer.py   --context-dir $contexts   --lang-dir ../data/lang_bpe_500   --per-utt $per_utt
-
+# Forced align spgispeech and alignment results:
