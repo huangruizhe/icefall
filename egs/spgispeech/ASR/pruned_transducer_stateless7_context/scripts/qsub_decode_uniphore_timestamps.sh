@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #$ -wd /exp/rhuang/meta/icefall/egs/spgispeech/ASR/
 #$ -V
-#$ -N decode_context
+#$ -N decode_timestamps
 #$ -j y -o log/log-$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
@@ -158,8 +158,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             --beam-size 4 \
             --context-dir "/exp/rhuang/meta/icefall/egs/spgispeech/ASR/data/uniphore_contexts/" \
             --n-distractors $n_distractors \
-            --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing true --biased-lm-scale 18 \
-            --part 0/4
+            --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing true --biased-lm-scale 18 
+            # --part 11/12
             # --is-predefined false --n-distractors 500 --no-encoder-biasing false --no-decoder-biasing false --no-wfst-lm-biasing false --biased-lm-scale 12 --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_slides_context_names" --is-predefined true --is-bi-context-encoder true
             # --is-predefined false --n-distractors 500 --no-encoder-biasing true --no-decoder-biasing true --no-wfst-lm-biasing false --biased-lm-scale 12 --slides "/exp/rhuang/meta/audio_ruizhe/ec21/data/earnings21_slides_context_names" --is-predefined true
 
@@ -207,3 +207,16 @@ fi
 # timestamps: **/timestamps-*
 
 # Forced align spgispeech and alignment results:
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/timestamps-spgispeech-0-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-205814-345.pt
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/timestamps-spgispeech-1-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-205816-110.pt
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/timestamps-spgispeech-2-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-205829-577.pt
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/timestamps-spgispeech-3-epoch-21-avg-1-modified_beam_search-beam-size-4-20231211-205829-814.pt
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/timestamps-spgispeech-4-epoch-21-avg-1-modified_beam_search-beam-size-4-20231212-023402-235.pt
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/timestamps-spgispeech-5-epoch-21-avg-1-modified_beam_search-beam-size-4-20231212-023402-335.pt
+# /exp/rhuang/icefall_latest/egs/spgispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage1/modified_beam_search/timestamps-spgispeech-6-epoch-21-avg-1-modified_beam_search-beam-size-4-20231212-023410-909.pt
+# /exp/rhuang/meta/icefall/egs/spgispeech/ASR//log/log-decode_context-11000130.out
+# /exp/rhuang/meta/icefall/egs/spgispeech/ASR//log/log-decode_context-11000131.out
+# /exp/rhuang/meta/icefall/egs/spgispeech/ASR//log/log-decode_timestamps-11000145.out
+# /exp/rhuang/meta/icefall/egs/spgispeech/ASR//log/log-decode_timestamps-11000146.out
+# /exp/rhuang/meta/icefall/egs/spgispeech/ASR//log/log-decode_timestamps-11000358.out
+

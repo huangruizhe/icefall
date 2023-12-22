@@ -948,7 +948,8 @@ def compute_alignments(
 
         ys_list: List[List[int]] = sp.encode(texts, out_type=int)
 
-        # _ali_list = []
+        # # Single thread version:
+        # _ali_list1 = []
         # for i in range(batch_size):
         #     # fmt: off
         #     encoder_out_i = encoder_out[i:i+1, :encoder_out_lens[i]]
@@ -961,9 +962,10 @@ def compute_alignments(
         #         ys=ys_list[i],
         #         beam_size=params.beam_size,
         #     )
-        #     _ali_list.append(ali)
-        # assert len(_ali_list) == len(cut_list)
+        #     _ali_list1.append(ali)
+        # assert len(_ali_list1) == len(cut_list)
 
+        # Batched version:
         _ali_list2 = force_alignment_batch(
             model=model,
             encoder_out=encoder_out,
@@ -973,14 +975,25 @@ def compute_alignments(
         )
         assert len(_ali_list2) == len(cut_list)
 
-        # _ali_list and _ali_list2 should be exactly the same!
+        # breakpoint()
+        # _ali_list1 and _ali_list2 should be exactly (almost) the same!
+        # for c1, l1, l2 in zip(cut_list, _ali_list1, _ali_list2):
+        #     # assert tuple(l1) == tuple(l2), (c1.id, l1, l2)
+        #     if tuple(l1) != tuple(l2):
+        #         print(c1.id)
+        #         print(l1)
+        #         print(l2)
+        #         input()
 
         for cut, ali in zip(cut_list, _ali_list2):
-            word_starting_frames = get_word_starting_frames2(
-                ali, sp=sp
-            )
+            # word_starting_frames = get_word_starting_frames2(
+            #     ali, sp=sp
+            # )
+            # ali_list.append(
+            #     (cut.id, word_starting_frames)
+            # )
             ali_list.append(
-                (cut.id, word_starting_frames)
+                (cut.id, ali)
             )
 
         if batch_idx % log_interval == 0:
@@ -995,9 +1008,12 @@ def compute_alignments(
 def store_timestamps(
     filename, timestamps
 ) -> None:
-    with open(filename, "w", encoding="utf8") as f:
-        for cut_id, ts in timestamps:
-            print(f"{cut_id}:\tts={ts}", file=f)
+    if filename.suffix == ".txt":
+        with open(filename, "w", encoding="utf8") as f:
+            for cut_id, ts in timestamps:
+                print(f"{cut_id}:\tts={ts}", file=f)
+    elif filename.suffix == ".pt":
+        torch.save(timestamps, filename)
 
 
 def save_results(
@@ -1450,15 +1466,18 @@ def main():
     # test_cuts = [test_cs]
 
     train_cuts = CutSet.from_file(args.manifest_dir / "cuts_train_shuf.jsonl.gz")
+    # train_cuts = CutSet.from_file(args.manifest_dir / "cuts_dev.jsonl.gz")
+    # train_cuts = CutSet.from_file(args.manifest_dir / "cuts_val.jsonl.gz")
 
     if args.part is not None:
         part = args.part[0]; n_parts = args.part[1]
         train_cuts = CutSet.from_cuts([c for c in train_cuts if "_sp" not in c.id and int(c.id.split("-")[-1]) % n_parts == part])
         train_cuts = train_cuts.sort_by_duration(ascending=False)
         # train_cuts.describe()
-        print(f"part-{part}/{n_parts} len(train_cuts) = {len(train_cuts)}")
+        logging.info(f"part-{part}/{n_parts} len(train_cuts) = {len(train_cuts)}")
     else:
         part = 0
+        # part = "val"
 
     train_dl = uniphore.test_dataloaders(train_cuts)
     test_sets = [f"spgispeech-{part}"]
@@ -1504,7 +1523,7 @@ def main():
             device=device,
         )
 
-        ts_path = params.res_dir / f"timestamps-{test_set}-{params.suffix}.txt"
+        ts_path = params.res_dir / f"timestamps-{test_set}-{params.suffix}.pt"  # .txt
         store_timestamps(filename=ts_path, timestamps=results)
         logging.info(f"Saved: {ts_path}")
 

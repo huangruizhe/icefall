@@ -15,8 +15,10 @@
 # limitations under the License.
 
 
+import warnings
 from dataclasses import dataclass
 from typing import Iterator, List, Optional
+import itertools
 
 import sentencepiece as spm
 import torch
@@ -314,9 +316,9 @@ def force_alignment_batch(
 
         B = [AlignItemList() for _ in range(batch_size)]
 
-        # ys_log_probs = torch.cat(
-        #     [hyp.log_prob.reshape(1, 1) for hyps in A for hyp in hyps]
-        # )  # (num_hyps, 1)
+        ys_log_probs = torch.cat(
+            [hyp.log_prob.reshape(1, 1) for hyps in A for hyp in hyps]
+        )  # (num_hyps, 1)
 
         decoder_input = torch.cat(
             [
@@ -356,7 +358,7 @@ def force_alignment_batch(
 
         log_probs = (logits / temperature).log_softmax(dim=-1)  # (num_hyps, vocab_size)
 
-        # log_probs.add_(ys_log_probs)
+        log_probs.add_(ys_log_probs)
 
         vocab_size = log_probs.size(-1)
 
@@ -368,34 +370,58 @@ def force_alignment_batch(
         )
         ragged_log_probs = k2.RaggedTensor(shape=log_probs_shape, value=log_probs)
 
+        tensor_ninf = torch.tensor([float('-inf')], device=device)
         for i in range(batch_size):
-            log_probs_i = ragged_log_probs[i].reshape(hyps_shape_simple[i], vocab_size)
             ys = _ys_list[i]
             U_i = len(ys)
-            for j in range(hyps_shape_simple[i]):
-                item = A[i][j]
 
-                if (Ts[i] - 1 - t) >= (U_i - item.pos_u):
+            # log_probs_i = ragged_log_probs[i].reshape(hyps_shape_simple[i], vocab_size)
+            idx = list(itertools.chain.from_iterable([(
+                    j * vocab_size + blank_id, 
+                    (j * vocab_size + ys[item.pos_u]) if item.pos_u < len(ys) else -1
+                ) for j, item in enumerate(A[i])
+            ]))
+            log_probs_i = torch.cat([ragged_log_probs[i], tensor_ninf])[idx,]
+            topk_log_probs, topk_indexes = log_probs_i.topk(min(beam_size * 2, len(log_probs_i)))
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                topk_hyp_indexes = (topk_indexes // 2).tolist()
+                topk_token_indexes = (topk_indexes % 2).tolist()
+
+            for k in range(len(topk_hyp_indexes)):
+                hyp_idx = topk_hyp_indexes[k]
+                item = A[i][hyp_idx]
+                new_token = topk_token_indexes[k]
+                new_log_prob = topk_log_probs[k]
+
+                if new_token == 0 and \
+                    (Ts[i] - 1 - t) >= (U_i - item.pos_u):
                     # horizontal transition (left -> right)
                     new_item = AlignItem(
-                        log_prob=item.log_prob + log_probs_i[j][blank_id],
+                        # log_prob=item.log_prob + log_probs_i[j][blank_id],
+                        log_prob=new_log_prob,
                         ys=item.ys + [blank_id],
                         pos_u=item.pos_u,
                     )
                     B[i].append(new_item)
 
-                if item.pos_u < U_i:
+                    if len(B[i]) > beam_size:
+                        break
+
+                if new_token != 0 and item.pos_u < U_i:
                     # diagonal transition (lower left -> upper right)
                     u = ys[item.pos_u]
                     new_item = AlignItem(
-                        log_prob=item.log_prob + log_probs_i[j][u],
+                        # log_prob=item.log_prob + log_probs_i[j][u],
+                        log_prob=new_log_prob,
                         ys=item.ys + [u],
                         pos_u=item.pos_u + 1,
                     )
                     B[i].append(new_item)
-            
-            if len(B[i]) > beam_size:
-                B[i] = B[i].topk(beam_size)
+
+                    if len(B[i]) > beam_size:
+                        break
 
     B = B + finalized_B
 

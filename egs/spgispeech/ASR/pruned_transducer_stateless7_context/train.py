@@ -1156,9 +1156,9 @@ def run(rank, world_size, args):
     for param in itertools.chain(
         model.encoder.parameters(),
         model.decoder.parameters(),
-        model.joiner.parameters(),
-        model.simple_am_proj.parameters(),
-        model.simple_lm_proj.parameters(),
+        # model.joiner.parameters(),
+        # model.simple_am_proj.parameters(),
+        # model.simple_lm_proj.parameters(),
     ):
         param.requires_grad = False
 
