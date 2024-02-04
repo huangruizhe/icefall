@@ -17,6 +17,7 @@
 # limitations under the License.
 
 from typing import List, Optional, Union, Tuple
+import math
 
 import k2
 import torch
@@ -25,6 +26,8 @@ from encoder_interface import EncoderInterface
 
 from icefall.utils import add_sos, make_pad_mask
 from scaling import ScaledLinear
+from icefall.decode import get_lattice, one_best_decoding
+from icefall.utils import get_alignments, get_texts
 
 
 class AsrModel(nn.Module):
@@ -208,6 +211,31 @@ class AsrModel(nn.Module):
 
         return supervision_segments, None, indices
 
+    def check_lattice(self, lattice):
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+        token_ids = get_texts(best_path)
+        hyps = self.scratch_space["sp"].decode(token_ids)
+        return hyps
+  
+    def check_lattice2(self, lattice, indices, i):
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+        token_ids = get_texts(best_path)
+        hyps = self.scratch_space["sp"].decode(token_ids)
+
+        print(f"[ref] {self.scratch_space['texts'][indices[i].item()]}")
+        print(f"[hyp] {hyps[i]}")
+        print(f"[cut] {self.scratch_space['cuts'][indices[i].item()]}")
+
+        # print(f"[ref] {self.scratch_space['texts'][i]}")
+        # print(f"[hyp] {hyps[i]}")
+        # print(f"[cut] {self.scratch_space['cuts'][i]}")
+
     def forward_ctc_long_form(
         self,
         encoder_out: torch.Tensor,
@@ -229,37 +257,157 @@ class AsrModel(nn.Module):
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
 
         supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
+        # my_args = self.scratch_space["my_args"]
+        # supervisions = my_args["supervisions"]
+        # supervision_segments = torch.stack(
+        #     (
+        #         supervisions["sequence_idx"],
+        #         torch.div(
+        #             supervisions["start_frame"],
+        #             self.scratch_space["subsampling_factor"],
+        #             rounding_mode="floor",
+        #         ),
+        #         torch.div(
+        #             supervisions["num_frames"],
+        #             self.scratch_space["subsampling_factor"],
+        #             rounding_mode="floor",
+        #         ),
+        #     ),
+        #     1,
+        # ).to(torch.int32)
 
+        # indices = torch.argsort(supervision_segments[:, 2], descending=True)
+        # print(indices)
+        
+        # from icefall.lexicon import Lexicon
+
+        # params = self.scratch_space["params"]
+        # lexicon = Lexicon('data/lang_bpe_500')
+        # max_token_id = max(lexicon.tokens)
+        # num_classes = max_token_id + 1  # +1 for the blank
+
+        # params.vocab_size = num_classes
+        # # <blk> and <unk> are defined in local/train_bpe_model.py
+        # params.blank_id = 0
+
+        # device = torch.device("cuda", 0)
+
+        # HLG = None
+        # H = k2.ctc_topo(
+        #     max_token=max_token_id,
+        #     modified=False,
+        #     device=device,
+        # )
+        # bpe_model = self.scratch_space["sp"]
+
+        # decoding_graph = H
+ 
         # targets is a list of k2 fst
         y_list = targets
         _y_list = [y_list[i] for i in indices.tolist()]
         decoding_graph = k2.create_fsa_vec(_y_list)
         decoding_graph = k2.arc_sort(decoding_graph)
         decoding_graph = decoding_graph.to(encoder_out.device)
+        # print(f"decoding_graph: #states: {decoding_graph.shape[0]}, #arcs: {decoding_graph.num_arcs}")
 
-        log_probs = ctc_output
-        dense_fsa_vec = k2.DenseFsaVec(
-            log_probs,
-            supervision_segments,
-            allow_truncate=self.scratch_space["subsampling_factor"] - 1,
-        )
+        # get a moving average of label priors
+        if False:
+            log_probs = ctc_output  # (N, T, C)
+            input_lengths = encoder_out_lens  # (N,)
 
-        ctc_loss = k2.ctc_loss(
-            decoding_graph=decoding_graph,
-            dense_fsa_vec=dense_fsa_vec,
-            output_beam=self.scratch_space["ctc_beam_size"],
-            reduction="sum",
-            use_double_scores=True,
-            # delay_penalty=0.05,
-        )
+            log_probs_flattened = []
+            for lp, le in zip(log_probs, input_lengths):
+                log_probs_flattened.append(lp[:int(le.item())])      
+            log_probs_flattened = torch.cat(log_probs_flattened, 0)
 
-        # ctc_loss = torch.nn.functional.ctc_loss(
-        #     log_probs=ctc_output.permute(1, 0, 2),  # (T, N, C)
-        #     targets=targets,
-        #     input_lengths=encoder_out_lens,
-        #     target_lengths=target_lengths,
-        #     reduction="sum",
+            # Note, the log_probs here is already log_softmax'ed.
+            T = log_probs_flattened.size(0)
+            log_batch_priors_sum = torch.logsumexp(log_probs_flattened, dim=0, keepdim=True)
+            log_batch_priors_sum = log_batch_priors_sum.detach()
+            if self.scratch_space["log_priors"] is None:
+                self.scratch_space["log_priors"] = log_batch_priors_sum - math.log(T)
+                self.scratch_space["priors_T"] = T
+            else:
+                _temp = torch.stack([self.scratch_space["log_priors"] + math.log(self.scratch_space["priors_T"]), log_batch_priors_sum], dim=-1)
+                _temp = torch.logsumexp(_temp, dim=-1)
+                self.scratch_space["priors_T"] += T
+                self.scratch_space["log_priors"] = _temp - math.log(self.scratch_space["priors_T"])
+            
+            # Clip the priors for stability
+            if self.scratch_space["log_priors"] is not None:
+                prior_threshold = -12.0
+                self.scratch_space["log_priors"] = torch.where(self.scratch_space["log_priors"] < prior_threshold, prior_threshold, self.scratch_space["log_priors"])
+                # if self.scratch_space["rank"] == 0:
+                #     print("new_log_prior (clipped): ", ["{0:0.2f}".format(i) for i in self.scratch_space["log_priors"][0].tolist()])
+
+        # apply label priors
+        if False and self.scratch_space["log_priors"] is not None:
+            prior_scaling_factor = 0.25
+            log_probs = ctc_output - self.scratch_space["log_priors"] * prior_scaling_factor
+        else:
+            log_probs = ctc_output
+        
+        # dense_fsa_vec = k2.DenseFsaVec(
+        #     log_probs,
+        #     supervision_segments,
+        #     allow_truncate=self.scratch_space["subsampling_factor"] - 1,
         # )
+
+        # ctc_loss = k2.ctc_loss(
+        #     decoding_graph=decoding_graph,
+        #     dense_fsa_vec=dense_fsa_vec,
+        #     output_beam=self.scratch_space["ctc_beam_size"],
+        #     reduction="sum",
+        #     use_double_scores=True,
+        #     # delay_penalty=0.05,
+        # )
+            
+        # print(f"log_prob [{self.training}]")
+        # print(f"log_prob [{log_probs[0][:50].argmax(dim=-1)}]")
+
+        # https://github.com/k2-fsa/k2/blob/master/k2/python/k2/ctc_loss.py#L138
+        lattice = get_lattice(
+            nnet_output=log_probs,
+            decoding_graph=decoding_graph,
+            supervision_segments=supervision_segments,
+            search_beam=15,
+            output_beam=6,
+            min_active_states=30,
+            max_active_states=10000,
+            subsampling_factor=self.scratch_space["subsampling_factor"],
+        )
+
+        # breakpoint()
+        # !print(*list(enumerate(batch["supervisions"]["text"])), sep="\n")
+        # !self.check_lattice2(lattice, indices, 0)
+        for i in range(10):
+            self.check_lattice2(lattice, indices, i)
+        exit(1)
+
+        # breakpoint()
+        # print(f"num_arcs after pruning: {lattice.arcs.num_elements()}")
+        # logging.info(f"LG in k2: #states: {lattice.shape[0]}, #arcs: {lattice.num_arcs}")
+
+        # best_path = one_best_decoding(
+        #     lattice=lattice,
+        #     use_double_scores=True,
+        # )
+
+        tot_scores = lattice.get_tot_scores(
+            log_semiring=True, use_double_scores=True,
+        )
+        loss = -1 * tot_scores
+        loss = loss.to(torch.float32)
+
+        # breakpoint()
+        inf_indices = torch.where(torch.isinf(loss))
+        if inf_indices[0].size(0) > 0:
+          loss[inf_indices] = 0
+          loss[inf_indices].detach()
+          self.scratch_space["inf_indices"] = inf_indices
+
+        ctc_loss = loss.sum()
+        
         return ctc_loss
 
     def forward_transducer(
@@ -411,11 +559,17 @@ class AsrModel(nn.Module):
         if my_args is not None:
             y, y_list = y
 
+        # self.scratch_space["my_args"] = my_args
+
         assert x.ndim == 3, x.shape
         assert x_lens.ndim == 1, x_lens.shape
         assert y.num_axes == 2, y.num_axes
 
         assert x.size(0) == x_lens.size(0) == y.dim0, (x.shape, x_lens.shape, y.dim0)
+
+        self.eval()
+        # self.train()
+        # breakpoint()
 
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)

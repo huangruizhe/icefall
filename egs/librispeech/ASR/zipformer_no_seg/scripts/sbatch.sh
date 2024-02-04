@@ -47,27 +47,27 @@ cd /home/rhuang25/work/icefall/egs/librispeech/ASR/
 ####################################
 
 # exp_dir=zipformer_no_seg/exp-ctc-rnnt
-# exp_dir=zipformer_no_seg/exp-test
-exp_dir=zipformer_no_seg/exp-no-seg1
+exp_dir=zipformer_no_seg/exp-test
+# exp_dir=zipformer_no_seg/exp-no-seg1
 
 echo
 echo "exp_dir:" $exp_dir
 echo
 
 python zipformer_no_seg/train_concat_libri.py \
-  --world-size 4 \
+  --world-size 1 \
   --num-epochs 40 \
   --start-epoch 1 \
   --use-fp16 true \
   --master-port 12535 \
   --causal false \
-  --full-libri true \
+  --full-libri false \
   --use-transducer false \
   --use-ctc true \
   --ctc-loss-scale 1.0 \
   --exp-dir $exp_dir \
-  --max-duration 1000 --num-workers 3 # \
-  # --start-epoch 35
+  --max-duration 400 --num-workers 3 \
+  --start-epoch 2 --ctc-beam-size 4
 
 echo "Done: `date`"
 
@@ -91,6 +91,66 @@ echo "Done: `date`"
 
 # https://stackoverflow.com/questions/37987839/how-can-i-run-tensorboard-on-a-remote-server
 # source activate aligner5
-# tensorboard --logdir $exp_dir/tensorboard --port 6006
+# tensorboard --logdir $exp_dir/tensorboard --port 6006 --window_title $exp_dir
 # ssh -L 16006:127.0.0.1:6006 rhuang25@login.rockfish.jhu.edu
 # http://localhost:16006 
+
+
+#########################
+# Get a seed model first on a small subset
+#########################
+
+# exp_dir=zipformer_no_seg/exp-seed
+# python zipformer_no_seg/train_seed.py \
+#   --world-size 4 \
+#   --num-epochs 20 \
+#   --start-epoch 1 \
+#   --use-fp16 true \
+#   --master-port 12535 \
+#   --causal false \
+#   --full-libri false \
+#   --use-transducer false \
+#   --use-ctc true \
+#   --ctc-loss-scale 1.0 \
+#   --exp-dir $exp_dir \
+#   --max-duration 400 --num-workers 3
+
+# diff zipformer_no_seg/exp-seed/{best-valid-loss.pt,epoch-14.pt}
+
+# python zipformer_no_seg/export.py \
+#   --exp-dir $exp_dir \
+#   --use-transducer false \
+#   --use-ctc true \
+#   --epoch 20 \
+#   --avg 7
+
+# ln -s $(realpath zipformer_no_seg/exp-seed/pretrained.pt) zipformer_no_seg/exp-no-seg1/epoch-1.pt
+# ln -s $(realpath zipformer_no_seg/exp-seed/pretrained.pt) zipformer_no_seg/exp-test/epoch-1.pt
+
+# Decode
+# for m in ctc-decoding 1best; do
+#   ./zipformer_no_seg/ctc_decode.py \
+#       --epoch 20 \
+#       --avg 7 \
+#       --exp-dir $exp_dir \
+#       --use-transducer 0 \
+#       --use-ctc 1 \
+#       --max-duration 500 \
+#       --causal 0 \
+#       --num-paths 100 \
+#       --nbest-scale 1.0 \
+#       --hlg-scale 0.6 \
+#       --decoding-method $m
+# done
+
+# --epoch 1 --avg 1 --use-averaged-model 0
+
+# epoch14-avg1  test-clean test-other
+# ctc-decoding  15.44      32.56
+# 1best         10.8       25.22
+
+# epoch20-avg7  test-clean test-other
+# ctc-decoding  13.29      29.01
+# 1best         9.95       23.26
+
+
