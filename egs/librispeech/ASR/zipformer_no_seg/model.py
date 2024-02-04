@@ -567,8 +567,8 @@ class AsrModel(nn.Module):
 
         assert x.size(0) == x_lens.size(0) == y.dim0, (x.shape, x_lens.shape, y.dim0)
 
-        self.eval()
-        # self.train()
+        # self.eval()
+        self.train()
         # breakpoint()
 
         # Compute encoder outputs
