@@ -111,21 +111,11 @@ from icefall.utils import (
 LRSchedulerType = Union[torch.optim.lr_scheduler._LRScheduler, optim.LRScheduler]
 
 
-def get_adjusted_batch_count0(params: AttributeDict) -> float:
-    # returns the number of batches we would have used so far if we had used the reference
-    # duration.  This is for purposes of set_batch_count().
-    return (
-        params.batch_idx_train
-        * (params.max_duration * params.world_size)
-        / params.ref_duration
-    )
-
-
 def get_adjusted_batch_count(params: AttributeDict) -> float:
     # returns the number of batches we would have used so far if we had used the reference
     # duration.  This is for purposes of set_batch_count().
     return (
-        10602 + (params.batch_idx_train - 14)
+        params.batch_idx_train
         * (params.max_duration * params.world_size)
         / params.ref_duration
     )
@@ -551,7 +541,7 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 1,
+            "log_interval": 50,
             "reset_interval": 200,
             "valid_interval": 1000,  # For the 100h subset, use 800
             # parameters for zipformer
@@ -994,7 +984,6 @@ def train_one_epoch(
 
     for batch_idx, batch in enumerate(train_dl):
         if batch_idx % 10 == 0:
-            logging.info(f"batch_idx={batch_idx} batch_idx_train={params.batch_idx_train}: batch_count={get_adjusted_batch_count(params)}")
             set_batch_count(model, get_adjusted_batch_count(params))
 
         params.batch_idx_train += 1
@@ -1030,7 +1019,7 @@ def train_one_epoch(
             scaler.update()
             optimizer.zero_grad()
 
-            logging.info(f"[epoch {params.cur_epoch} - batch {batch_idx}] loss: {loss}")
+            # logging.info(f"[epoch {params.cur_epoch} - batch {batch_idx}] loss: {loss}")
         except:  # noqa
             save_bad_model()
             display_and_save_batch(batch, params=params, sp=sp)
@@ -1176,9 +1165,8 @@ def get_uid_key(my_id):
 def convert_long_text_to_fst(items, sp, pid, results):
     libri_long_text_sp = dict()
     for k, text in tqdm(items, mininterval=2, desc=f"libri_long_text [{pid}]"):
-        # libri_long_text_sp[k] = make_factor_transducer1(sp.encode(text, out_type=int), return_str=True, blank_penalty=0)
+        libri_long_text_sp[k] = make_factor_transducer1(sp.encode(text, out_type=int), return_str=True, blank_penalty=0)
         # libri_long_text_sp[k] = make_factor_transducer2(sp.encode(text, out_type=int), return_str=True, blank_penalty=-12)
-        libri_long_text_sp[k] = make_factor_transducer3(sp.encode(text, out_type=int), word_start_symbols=[i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')], return_str=True, blank_penalty=0)
     results[pid] = libri_long_text_sp
 
 
@@ -1246,6 +1234,8 @@ def get_long_text(cuts, sp=None, make_fst=False):
 def make_factor_transducer1(word_id_list, return_str=False, blank_penalty=0):
     # This is the original, simplest factor transducer for a "linear" fst
 
+    # TODO: we may consider a factor transducer at word-level instead of word piece level
+
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
     c_str = k2.to_str_simple(fst_graph)
@@ -1306,43 +1296,6 @@ def make_factor_transducer2(word_id_list, return_str=False, blank_penalty=-1):
     arcs += [(n, final_state - 1, 0, 0, blank_penalty) for n, l in non_eps_nodes]
     arcs += [(final_state - 1, final_state - 1, 0, 0, blank_penalty)]
     arcs += [(final_state - 1, final_state, -1, -1, 0)]
-
-    new_arcs = arcs
-    new_arcs.append([final_state])
-
-    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
-    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
-    new_arcs = [" ".join(arc) for arc in new_arcs]
-    new_arcs = "\n".join(new_arcs)
-
-    if return_str:
-        return new_arcs
-    else:
-        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
-        return fst
-
-
-def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
-    # This is a modification of make_factor_transducer1, where the factors are on "word-level"
-    # That is, the words always come as a whole
-
-    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
-
-    c_str = k2.to_str_simple(fst_graph)
-    arcs = c_str.strip().split("\n")
-    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
-    final_state = int(arcs[-1])
-    
-    arcs = arcs[:-1]
-    arcs = [tuple(map(int, a.split())) for a in arcs]
-    # ss, ee, l1, l2, w = arc
-
-    non_eps_nodes = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
-    arcs += [(0, n, l, l, 0) for n, l in non_eps_nodes if n > 1]
-
-    non_eps_nodes2 = set((arc[0], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start out-going arc
-    non_eps_nodes2 = [(n, l) for n, l in non_eps_nodes2 if 0 < n < final_state - 2]
-    arcs += [(n, final_state, -1, -1, 0) for n, l in non_eps_nodes2]
 
     new_arcs = arcs
     new_arcs.append([final_state])
@@ -1503,9 +1456,9 @@ def run(rank, world_size, args):
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
 
     # get long text for each recording
-    libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
-    logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
-    my_args = {"libri_long_text": libri_long_text}
+    # libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
+    # logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
+    # my_args = {"libri_long_text": libri_long_text}
 
     get_model_scrach_space(model, k="subsampling_factor", v=params.subsampling_factor, set_value=True)
     get_model_scrach_space(model, k="ctc_beam_size", v=params.ctc_beam_size, set_value=True)
@@ -1541,8 +1494,6 @@ def run(rank, world_size, args):
         logging.info("Loading grad scaler state dict")
         scaler.load_state_dict(checkpoints["grad_scaler"])
 
-    params.batch_idx_train *= 10
-
     for epoch in range(params.start_epoch, params.num_epochs + 1):
         scheduler.step_epoch(epoch - 1)
         fix_random_seed(params.seed + epoch - 1)
@@ -1566,7 +1517,7 @@ def run(rank, world_size, args):
             tb_writer=tb_writer,
             world_size=world_size,
             rank=rank,
-            my_args=my_args,
+            # my_args=my_args,
         )
 
         if params.print_diagnostics:

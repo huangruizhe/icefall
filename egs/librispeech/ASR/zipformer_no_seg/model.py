@@ -18,6 +18,8 @@
 
 from typing import List, Optional, Union, Tuple
 import math
+from collections import defaultdict
+import logging
 
 import k2
 import torch
@@ -28,6 +30,52 @@ from icefall.utils import add_sos, make_pad_mask
 from scaling import ScaledLinear
 from icefall.decode import get_lattice, one_best_decoding
 from icefall.utils import get_alignments, get_texts
+
+import kaldialign
+
+
+def compute_wer(results):
+    subs = defaultdict(int)
+    ins = defaultdict(int)
+    dels = defaultdict(int)
+
+    # `words` stores counts per word, as follows:
+    #   corr, ref_sub, hyp_sub, ins, dels
+    words = defaultdict(lambda: [0, 0, 0, 0, 0])
+    num_corr = 0
+    ERR = "*"
+
+    # if compute_CER:
+    #     for i, res in enumerate(results):
+    #         cut_id, ref, hyp = res
+    #         ref = list("".join(ref))
+    #         hyp = list("".join(hyp))
+    #         results[i] = (cut_id, ref, hyp)
+    sclite_mode = False
+
+    for cut_id, ref, hyp in results:
+        ali = kaldialign.align(ref, hyp, ERR, sclite_mode=sclite_mode)
+        for ref_word, hyp_word in ali:
+            if ref_word == ERR:
+                ins[hyp_word] += 1
+                words[hyp_word][3] += 1
+            elif hyp_word == ERR:
+                dels[ref_word] += 1
+                words[ref_word][4] += 1
+            elif hyp_word != ref_word:
+                subs[(ref_word, hyp_word)] += 1
+                words[ref_word][1] += 1
+                words[hyp_word][2] += 1
+            else:
+                words[ref_word][0] += 1
+                num_corr += 1
+    ref_len = sum([len(r) for _, r, _ in results])
+    sub_errs = sum(subs.values())
+    ins_errs = sum(ins.values())
+    del_errs = sum(dels.values())
+    tot_errs = sub_errs + ins_errs + del_errs
+    tot_err_rate = "%.2f" % (100.0 * tot_errs / ref_len)
+    return f"{tot_err_rate} [{tot_errs}/{ref_len}] [ins:{ins_errs}, del:{del_errs}, sub:{sub_errs}]"
 
 
 class AsrModel(nn.Module):
@@ -174,7 +222,7 @@ class AsrModel(nn.Module):
             target_lengths=target_lengths,
             reduction="sum",
         )
-        return ctc_loss
+        return ctc_loss, torch.tensor(0)
   
     def encode_supervisions(
         self, targets, target_lengths, input_lengths
@@ -228,13 +276,104 @@ class AsrModel(nn.Module):
         token_ids = get_texts(best_path)
         hyps = self.scratch_space["sp"].decode(token_ids)
 
-        print(f"[ref] {self.scratch_space['texts'][indices[i].item()]}")
-        print(f"[hyp] {hyps[i]}")
-        print(f"[cut] {self.scratch_space['cuts'][indices[i].item()]}")
+        cut_id = self.scratch_space['cuts'][indices[i].item()].id
+        print(f"[{cut_id}: ref] {self.scratch_space['texts'][indices[i].item()]}")
+        print(f"[{cut_id}: hyp] {hyps[i]}")
+        # print(f"[cut] {self.scratch_space['cuts'][indices[i].item()]}")
 
         # print(f"[ref] {self.scratch_space['texts'][i]}")
         # print(f"[hyp] {hyps[i]}")
         # print(f"[cut] {self.scratch_space['cuts'][i]}")
+    
+    def check_lattice3(self, lattice, indices):
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+        token_ids = get_texts(best_path)
+        hyps = self.scratch_space["sp"].decode(token_ids)
+
+        supervisions = self.scratch_space["my_args"]["supervisions"]
+        texts = supervisions["text"]
+        cuts = supervisions['cut']
+        cut_ids = [c.id for c in cuts]
+        results = list()
+        params = self.scratch_space["params"]
+        for i in range(len(texts)):
+            i_original = indices[i].item()
+            cut_id, hyp_text, ref_text = cut_ids[i_original], hyps[i], texts[i_original]
+            hyp_words = hyp_text.split()
+            ref_words = ref_text.split()
+            results.append((cut_id, ref_words, hyp_words))
+
+        # compute wer for the batch
+        wer = compute_wer(results)
+        logging.info(f"[epoch {params.cur_epoch} - batch {params.batch_idx_train}] [batch_size: {len(texts)}] wer: {wer}")
+
+
+    def get_log_priors_batch(self, log_probs, input_lengths):
+        # log_probs:  (N, T, C)
+        # input_lengths:  (N,)
+
+        log_probs_flattened = []
+        for lp, le in zip(log_probs, input_lengths):
+            log_probs_flattened.append(lp[:int(le.item())])      
+        log_probs_flattened = torch.cat(log_probs_flattened, 0)
+
+        # Note, the log_probs here is already log_softmax'ed.
+        T = log_probs_flattened.size(0)
+        log_batch_priors_sum = torch.logsumexp(log_probs_flattened, dim=0, keepdim=True)
+        log_priors = log_batch_priors_sum.detach() - math.log(T)
+
+        # Clipping mechanism
+        prior_threshold = -12.0
+        log_priors = torch.where(log_priors < prior_threshold, prior_threshold, log_priors)
+
+        return log_priors
+
+    def check_eval_wer(self, x, x_lens, y, y_list, my_args):
+        # !import code; code.interact(local=vars())
+        # _=self.eval()
+        # _=self.train()
+        # self.training
+        
+        _=self.eval()
+        self.training
+
+        encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
+        row_splits = y.shape.row_splits(1)
+        y_lens = row_splits[1:] - row_splits[:-1]
+        targets=y_list
+        target_lengths=y_lens
+        ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
+        batch_size = ctc_output.size(0)
+        t = (ctc_output.argmax(-1) != 0).sum().item()
+        supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
+        y_list = targets
+        _y_list = [y_list[i] for i in indices.tolist()]
+        decoding_graph = k2.create_fsa_vec(_y_list)
+        decoding_graph = k2.arc_sort(decoding_graph)
+        decoding_graph = decoding_graph.to(encoder_out.device)
+        log_probs = ctc_output
+        lattice = get_lattice(
+            nnet_output=log_probs,
+            decoding_graph=decoding_graph,
+            supervision_segments=supervision_segments,
+            search_beam=15,
+            output_beam=6,
+            min_active_states=30,
+            max_active_states=10000,
+            subsampling_factor=self.scratch_space["subsampling_factor"],
+        )
+        # for i in range(len(_y_list)):
+        #     self.check_lattice2(lattice, indices, i)
+
+        logging.info("Eval:")
+        self.check_lattice3(lattice, indices)
+        logging.info("Train:")
+
+        _=self.train()
+
 
     def forward_ctc_long_form(
         self,
@@ -255,6 +394,21 @@ class AsrModel(nn.Module):
         """
         # Compute CTC log-prob
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
+
+        batch_size = ctc_output.size(0)
+        t = (ctc_output.argmax(-1) != 0).sum().item()
+        # if t < 10 * batch_size:
+        if False:
+            # apply blank penalty
+            penalty = torch.zeros(ctc_output.size(-1), device=ctc_output.device)
+            penalty[0] = 10.0
+            # penalty[0] = ctc_output.mean()
+            # penalty = ctc_output.mean(dim=-1)
+            # log_priors = self.get_log_priors_batch(ctc_output, encoder_out_lens)
+            # penalty = 0.2 * log_priors
+            # breakpoint()
+            ctc_output = ctc_output - penalty
+            ctc_output = nn.functional.log_softmax(ctc_output, dim=-1)
 
         supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
         # my_args = self.scratch_space["my_args"]
@@ -380,24 +534,34 @@ class AsrModel(nn.Module):
         # breakpoint()
         # !print(*list(enumerate(batch["supervisions"]["text"])), sep="\n")
         # !self.check_lattice2(lattice, indices, 0)
-        for i in range(10):
-            self.check_lattice2(lattice, indices, i)
-        exit(1)
+
+        # for i in range(len(_y_list)):
+        #     self.check_lattice2(lattice, indices, i)
+        # exit(1)
+        # self.check_lattice2(lattice, indices, 0)
+        self.check_lattice3(lattice, indices)
 
         # breakpoint()
         # print(f"num_arcs after pruning: {lattice.arcs.num_elements()}")
         # logging.info(f"LG in k2: #states: {lattice.shape[0]}, #arcs: {lattice.num_arcs}")
 
-        # best_path = one_best_decoding(
-        #     lattice=lattice,
-        #     use_double_scores=True,
-        # )
-
-        tot_scores = lattice.get_tot_scores(
+        # Option1: best path
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+        tot_scores = best_path.get_tot_scores(
             log_semiring=True, use_double_scores=True,
         )
         loss = -1 * tot_scores
         loss = loss.to(torch.float32)
+
+        # Option2: total score:
+        # tot_scores = lattice.get_tot_scores(
+        #     log_semiring=True, use_double_scores=True,
+        # )
+        # loss = -1 * tot_scores
+        # loss = loss.to(torch.float32)
 
         # breakpoint()
         inf_indices = torch.where(torch.isinf(loss))
@@ -407,8 +571,25 @@ class AsrModel(nn.Module):
           self.scratch_space["inf_indices"] = inf_indices
 
         ctc_loss = loss.sum()
-        
-        return ctc_loss
+
+        # Compute an aux entropy loss to encourage the model to avoid empty sequence or to produce diversified results
+        # The idea is:
+        # 1. As we don't know the ground truth (transcription), so cannot compute some cross entropy loss vs. the ground truth
+        # 2. From copilot: [We can encourage the model to avoid empty sequence or to produce diversified results by computing the entropy of the model's output]
+        # 3. The empty sequence is basically all blank tokens -- in log_probs, blank has the highest log-prob
+        # 4. What we hope is that the model can produce some reasonable non-blank spikes in the posteriorgram.
+        # 5. So the loss function is: 
+        #       t = the number of spikes
+        #       g(t) = (1/a * t)^-1   # where when t is small g(t) is large, when t=a then g(t)=1,  "a" is a hyper-parameter
+        #       loss = g(t) * log_probs[:,:,0]
+        def aux_loss(_log_probs, _m=4.0):
+          # t = len(torch.unique(_log_probs.argmax(-1)))
+          t = (log_probs.argmax(-1) != 0).sum().item()
+          g_t = (1/_m * max(t - 0.7, 1e-3))**(-1)  # g(t) is a scalar coefficient
+          g_t = g_t if g_t > 1 else 0
+          return g_t * -torch.log(-_log_probs[...,0]).sum()
+                      
+        return ctc_loss, torch.tensor(0)  # aux_loss(log_probs, _m=10.0)
 
     def forward_transducer(
         self,
@@ -559,7 +740,7 @@ class AsrModel(nn.Module):
         if my_args is not None:
             y, y_list = y
 
-        # self.scratch_space["my_args"] = my_args
+        self.scratch_space["my_args"] = my_args
 
         assert x.ndim == 3, x.shape
         assert x_lens.ndim == 1, x_lens.shape
@@ -567,9 +748,13 @@ class AsrModel(nn.Module):
 
         assert x.size(0) == x_lens.size(0) == y.dim0, (x.shape, x_lens.shape, y.dim0)
 
-        # self.eval()
-        self.train()
-        # breakpoint()
+        # _=self.eval()
+        # _=self.train()
+        # if self.training:
+        #     breakpoint()
+        # # !import code; code.interact(local=vars())
+        if my_args is not None:
+            self.check_eval_wer(x, x_lens, y, y_list, my_args)
 
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
@@ -604,21 +789,24 @@ class AsrModel(nn.Module):
             # torch.cuda.memory_allocated(0)/1024/1024
 
             if my_args is None:
-                ctc_loss = self.forward_ctc(
+                ctc_loss, ctc_aux_loss = self.forward_ctc(
                     encoder_out=encoder_out,
                     encoder_out_lens=encoder_out_lens,
                     targets=targets,
                     target_lengths=y_lens,
                 )
             else:
-                ctc_loss = self.forward_ctc_long_form(
+                ctc_loss, ctc_aux_loss = self.forward_ctc_long_form(
                     encoder_out=encoder_out,
                     encoder_out_lens=encoder_out_lens,
                     targets=y_list,
                     target_lengths=y_lens,
                 )
+                # import logging
+                # logging.info(f"ctc_aux_loss = {ctc_aux_loss}")
 
         else:
             ctc_loss = torch.empty(0)
+            ctc_aux_loss = torch.empty(0)
 
-        return simple_loss, pruned_loss, ctc_loss
+        return simple_loss, pruned_loss, ctc_loss, ctc_aux_loss

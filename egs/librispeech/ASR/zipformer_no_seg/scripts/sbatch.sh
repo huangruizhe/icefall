@@ -48,6 +48,7 @@ cd /home/rhuang25/work/icefall/egs/librispeech/ASR/
 
 # exp_dir=zipformer_no_seg/exp-ctc-rnnt
 exp_dir=zipformer_no_seg/exp-test
+# exp_dir=zipformer_no_seg/exp-test2  # train ctc branch only
 # exp_dir=zipformer_no_seg/exp-no-seg1
 
 echo
@@ -113,7 +114,7 @@ echo "Done: `date`"
 #   --use-ctc true \
 #   --ctc-loss-scale 1.0 \
 #   --exp-dir $exp_dir \
-#   --max-duration 400 --num-workers 3
+#   --max-duration 200 --num-workers 3
 
 # diff zipformer_no_seg/exp-seed/{best-valid-loss.pt,epoch-14.pt}
 
