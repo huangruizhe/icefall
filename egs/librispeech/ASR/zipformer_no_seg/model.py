@@ -53,29 +53,38 @@ def compute_wer(results):
     #         results[i] = (cut_id, ref, hyp)
     sclite_mode = False
 
+    cut_wers = {}
+
     for cut_id, ref, hyp in results:
         ali = kaldialign.align(ref, hyp, ERR, sclite_mode=sclite_mode)
+        cut_wer = [0, 0, 0, 0]  # corr, sub, ins, dels
         for ref_word, hyp_word in ali:
             if ref_word == ERR:
                 ins[hyp_word] += 1
                 words[hyp_word][3] += 1
+                cut_wer[2] += 1
             elif hyp_word == ERR:
                 dels[ref_word] += 1
                 words[ref_word][4] += 1
+                cut_wer[3] += 1
             elif hyp_word != ref_word:
                 subs[(ref_word, hyp_word)] += 1
                 words[ref_word][1] += 1
                 words[hyp_word][2] += 1
+                cut_wer[1] += 1
             else:
                 words[ref_word][0] += 1
                 num_corr += 1
+                cut_wer[0] += 1
+        cut_wers[cut_id] = (sum(cut_wer[1:]) / (sum(cut_wer) - cut_wer[2]), cut_wer)
     ref_len = sum([len(r) for _, r, _ in results])
     sub_errs = sum(subs.values())
     ins_errs = sum(ins.values())
     del_errs = sum(dels.values())
     tot_errs = sub_errs + ins_errs + del_errs
     tot_err_rate = "%.2f" % (100.0 * tot_errs / ref_len)
-    return f"{tot_err_rate} [{tot_errs}/{ref_len}] [ins:{ins_errs}, del:{del_errs}, sub:{sub_errs}]"
+
+    return cut_wers, f"{tot_err_rate} [{tot_errs}/{ref_len}] [ins:{ins_errs}, del:{del_errs}, sub:{sub_errs}]"
 
 
 class AsrModel(nn.Module):
@@ -308,9 +317,15 @@ class AsrModel(nn.Module):
             results.append((cut_id, ref_words, hyp_words))
 
         # compute wer for the batch
-        wer = compute_wer(results)
+        cut_wer, wer = compute_wer(results)
         logging.info(f"[epoch {params.cur_epoch} - batch {params.batch_idx_train}] [batch_size: {len(texts)}] wer: {wer}")
 
+        # max_wer_cut_id = max(cut_wer, key=lambda cut_id: cut_wer[cut_id][0])
+        # entry = next((cut_id, ref_words, hyp_words) for cut_id, ref_words, hyp_words in results if cut_id == max_wer_cut_id)
+        # logging.info(f"[{max_wer_cut_id}: wer] {cut_wer[max_wer_cut_id]}")
+        # logging.info(f"[{max_wer_cut_id}: ref] {entry[1]}")
+        # logging.info(f"[{max_wer_cut_id}: hyp] {entry[2]}")
+        # logging.info(f"[{max_wer_cut_id} batch] {[f'{val[0]:.2f}' for val in sorted(cut_wer.values(), key=lambda x: x[0], reverse=True)]}")
 
     def get_log_priors_batch(self, log_probs, input_lengths):
         # log_probs:  (N, T, C)
@@ -342,22 +357,27 @@ class AsrModel(nn.Module):
         self.training
 
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
-        row_splits = y.shape.row_splits(1)
-        y_lens = row_splits[1:] - row_splits[:-1]
-        targets=y_list
-        target_lengths=y_lens
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
-        batch_size = ctc_output.size(0)
-        t = (ctc_output.argmax(-1) != 0).sum().item()
-        supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
-        y_list = targets
-        _y_list = [y_list[i] for i in indices.tolist()]
-        decoding_graph = k2.create_fsa_vec(_y_list)
-        decoding_graph = k2.arc_sort(decoding_graph)
-        decoding_graph = decoding_graph.to(encoder_out.device)
-        log_probs = ctc_output
+        
+        supervision_segments, texts, indices = self.encode_supervisions(None, None, encoder_out_lens)
+
+        if y_list is not None:
+            _y_list = [y_list[i] for i in indices.tolist()]
+            decoding_graph = k2.create_fsa_vec(_y_list)
+            decoding_graph = k2.arc_sort(decoding_graph)
+            decoding_graph = decoding_graph.to(encoder_out.device)
+        else:
+            texts = self.scratch_space["texts"]
+            sp = self.scratch_space["sp"]
+            make_factor_transducer1 = self.scratch_space["make_factor_transducer1"]
+            y_list = [make_factor_transducer1(sp.encode(text, out_type=int), return_str=False, blank_penalty=0) for text in texts]
+            _y_list = [y_list[i] for i in indices.tolist()]
+            decoding_graph = k2.create_fsa_vec(_y_list)
+            decoding_graph = k2.arc_sort(decoding_graph)
+            decoding_graph = decoding_graph.to(encoder_out.device)
+       
         lattice = get_lattice(
-            nnet_output=log_probs,
+            nnet_output=ctc_output,
             decoding_graph=decoding_graph,
             supervision_segments=supervision_segments,
             search_beam=15,
@@ -371,49 +391,7 @@ class AsrModel(nn.Module):
 
         logging.info("Eval:")
         self.check_lattice3(lattice, indices)
-        logging.info("Train:")
-
-        _=self.train()
-
-
-    def check_wer(self, x, x_lens, y, y_list, my_args):
-        _=self.eval()
-        self.training
-
-        encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
-        
-        
-
-        row_splits = y.shape.row_splits(1)
-        y_lens = row_splits[1:] - row_splits[:-1]
-        targets=y_list
-        target_lengths=y_lens
-        ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
-        batch_size = ctc_output.size(0)
-        t = (ctc_output.argmax(-1) != 0).sum().item()
-        
-        supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
-        y_list = targets
-        _y_list = [y_list[i] for i in indices.tolist()]
-        decoding_graph = k2.create_fsa_vec(_y_list)
-        decoding_graph = k2.arc_sort(decoding_graph)
-        decoding_graph = decoding_graph.to(encoder_out.device)
-        log_probs = ctc_output
-        lattice = get_lattice(
-            nnet_output=log_probs,
-            decoding_graph=decoding_graph,
-            supervision_segments=supervision_segments,
-            search_beam=15,
-            output_beam=6,
-            min_active_states=30,
-            max_active_states=10000,
-            subsampling_factor=self.scratch_space["subsampling_factor"],
-        )
-        # for i in range(len(_y_list)):
-        #     self.check_lattice2(lattice, indices, i)
-
-        logging.info("Eval:")
-        self.check_lattice3(lattice, indices)
+        # logging.info("Train:")
 
         _=self.train()
 
@@ -714,8 +692,9 @@ class AsrModel(nn.Module):
         if True:
             ref_texts = self.scratch_space["texts"]
             hyp_texts = self.scratch_space["sp"].decode(token_ids)
-            results = [(None, ref.split(), hyp.split()) for hyp, ref in zip(hyp_texts, ref_texts)]
-            wer = compute_wer(results)
+            cuts = self.scratch_space["cuts"]
+            results = [(c.id, ref.split(), hyp.split()) for c, hyp, ref in zip(cuts, hyp_texts, ref_texts)]
+            cut_wer, wer = compute_wer(results)
             logging.info(f"[epoch {self.scratch_space['params'].cur_epoch} - batch {self.scratch_space['params'].batch_idx_train}] [batch_size: {len(ref_texts)}] wer: {wer}")
 
         # use decoding results as supervision
@@ -903,7 +882,8 @@ class AsrModel(nn.Module):
         # # !import code; code.interact(local=vars())
 
         # if my_args is not None and "libri_long_text" in my_args:
-        #     self.check_eval_wer(x, x_lens, y, y_long, my_args)
+        if my_args is not None:
+            self.check_eval_wer(x, x_lens, y, y_long, my_args)
 
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)

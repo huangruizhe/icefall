@@ -832,13 +832,26 @@ def compute_loss(
     #     texts_shuffled = random.sample(_texts, len(_texts))
     #     return _texts[:-3] + texts_shuffled[-3:]
 
+    def get_shorter_texts(_texts, _batch_idx):
+        # _i = int(_batch_idx / 2)
+        _i = min(_batch_idx, min(len(t) for t in _texts) - 1)
+        _texts = [t.split() for t in _texts]
+        if _batch_idx % 2 == 0:
+            _texts = [" ".join(t[_i:]) for t in _texts]
+        else:
+            _texts = [" ".join(t[:-_i]) for t in _texts]
+        return _texts
+
     # def get_decoding_graphs(_texts):        
     #     fst_graph = k2.ctc_graph(sp.encode(_texts, out_type=int), modified=False, device='cpu')
     #     return [fst_graph[i] for i in range(fst_graph.shape[0])]
 
     # if my_args is None or "libri_long_text" not in my_args:
     texts = batch["supervisions"]["text"]
-    # texts = get_random_texts(texts)
+    # if my_args is not None:
+    #     texts = get_random_texts(texts)
+    if my_args is not None and "batch_idx" in my_args:
+        texts = get_shorter_texts(texts, my_args["batch_idx"])
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y)
     
@@ -1034,6 +1047,7 @@ def train_one_epoch(
         if my_args is not None:
             my_args["supervisions"] = supervisions
             my_args["batch"] = batch
+            my_args["batch_idx"] = batch_idx
 
         try:
             with torch.cuda.amp.autocast(enabled=params.use_fp16):
@@ -1534,15 +1548,16 @@ def run(rank, world_size, args):
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
 
     # get long text for each recording
-    libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
-    logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
-    my_args = {"libri_long_text": libri_long_text}
-    # my_args = {}
+    # libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
+    # logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
+    # my_args = {"libri_long_text": libri_long_text}
+    my_args = {}
 
     get_model_scrach_space(model, k="subsampling_factor", v=params.subsampling_factor, set_value=True)
     get_model_scrach_space(model, k="ctc_beam_size", v=params.ctc_beam_size, set_value=True)
     get_model_scrach_space(model, k="sp", v=sp, set_value=True)
     get_model_scrach_space(model, k="params", v=params, set_value=True)
+    get_model_scrach_space(model, k="make_factor_transducer1", v=make_factor_transducer1, set_value=True)
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint
