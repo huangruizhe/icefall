@@ -121,11 +121,21 @@ def get_adjusted_batch_count0(params: AttributeDict) -> float:
     )
 
 
-def get_adjusted_batch_count(params: AttributeDict) -> float:
+def get_adjusted_batch_count1(params: AttributeDict) -> float:
     # returns the number of batches we would have used so far if we had used the reference
     # duration.  This is for purposes of set_batch_count().
     return (
         10602 + (params.batch_idx_train - 14)
+        * (params.max_duration * params.world_size)
+        / params.ref_duration
+    )
+
+
+def get_adjusted_batch_count(params: AttributeDict) -> float:
+    # returns the number of batches we would have used so far if we had used the reference
+    # duration.  This is for purposes of set_batch_count().
+    return (
+        (10602 + params.batch_idx_train)
         * (params.max_duration * params.world_size)
         / params.ref_duration
     )
@@ -551,7 +561,7 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 1,
+            "log_interval": 50,
             "reset_interval": 200,
             "valid_interval": 1000,  # For the 100h subset, use 800
             # parameters for zipformer
@@ -817,26 +827,41 @@ def compute_loss(
     batch_idx_train = params.batch_idx_train
     warm_step = params.warm_step
 
-    if my_args is None:
-        texts = batch["supervisions"]["text"]
-        y = sp.encode(texts, out_type=int)
-        y = k2.RaggedTensor(y)
-    else:
+    # def get_random_texts(_texts):
+    #     import random
+    #     texts_shuffled = random.sample(_texts, len(_texts))
+    #     return _texts[:-3] + texts_shuffled[-3:]
+
+    # def get_decoding_graphs(_texts):        
+    #     fst_graph = k2.ctc_graph(sp.encode(_texts, out_type=int), modified=False, device='cpu')
+    #     return [fst_graph[i] for i in range(fst_graph.shape[0])]
+
+    # if my_args is None or "libri_long_text" not in my_args:
+    texts = batch["supervisions"]["text"]
+    # texts = get_random_texts(texts)
+    y = sp.encode(texts, out_type=int)
+    y = k2.RaggedTensor(y)
+    
+    cuts = batch['supervisions']['cut']
+    if my_args is not None and "libri_long_text" in my_args:
         libri_long_text = my_args["libri_long_text"]
-        cuts = batch['supervisions']['cut']
-        y = [libri_long_text[tuple(get_uid_key(c.id)[:2])] for c in cuts]
-        y = (k2.RaggedTensor([[0]] * feature.size(0)), y)
+        y_long = [libri_long_text[tuple(get_uid_key(c.id)[:2])] for c in cuts]
+        # y_long = get_decoding_graphs(texts)
+        # y_long = [make_factor_transducer1(sp.encode(text, out_type=int), return_str=False, blank_penalty=0) for text in texts]
         # k2.ragged.create_ragged_tensor([ [1, 2], [5], [], [9] ])
         # k2.ragged.create_ragged_tensor([ [1, 2], [5], [], [9] ]).tolist()
-        get_model_scrach_space(model, k="cuts", v=cuts, set_value=True)
-    
+    else:
+        y_long = None
+        
+    get_model_scrach_space(model, k="cuts", v=cuts, set_value=True)
     get_model_scrach_space(model, k="texts", v=batch["supervisions"]["text"], set_value=True)
+    get_model_scrach_space(model, k="my_args", v=my_args, set_value=True)
 
     with torch.set_grad_enabled(is_training):
-        simple_loss, pruned_loss, ctc_loss, ctc_aux_loss = model(
+        simple_loss, pruned_loss, ctc_loss, ctc_loss_long, ctc_aux_loss = model(
             x=feature,
             x_lens=feature_lens,
-            y=y,
+            y=(y, y_long),
             prune_range=params.prune_range,
             am_scale=params.am_scale,
             lm_scale=params.lm_scale,
@@ -862,8 +887,12 @@ def compute_loss(
             loss += simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss
 
         if params.use_ctc:
-            loss += params.ctc_loss_scale * ctc_loss
-            loss += params.ctc_loss_scale * 0.1 * ctc_aux_loss
+            if my_args is not None and "libri_long_text" in my_args:
+                # loss += params.ctc_loss_scale * ctc_loss
+                loss += params.ctc_loss_scale * ctc_loss_long
+                # loss += params.ctc_loss_scale * 0.1 * ctc_aux_loss
+            else:
+                loss += params.ctc_loss_scale * ctc_loss
 
     assert loss.requires_grad == is_training
 
@@ -885,6 +914,7 @@ def compute_loss(
     if params.use_ctc:
         info["ctc_loss"] = ctc_loss.detach().cpu().item()
         info["ctc_aux_loss"] = ctc_aux_loss.detach().cpu().item()
+        info["ctc_loss_long"] = ctc_loss_long.detach().cpu().item()
 
     return loss, info
 
@@ -994,7 +1024,7 @@ def train_one_epoch(
 
     for batch_idx, batch in enumerate(train_dl):
         if batch_idx % 10 == 0:
-            logging.info(f"batch_idx={batch_idx} batch_idx_train={params.batch_idx_train}: batch_count={get_adjusted_batch_count(params)}")
+            # logging.info(f"batch_idx={batch_idx} batch_idx_train={params.batch_idx_train}: batch_count={get_adjusted_batch_count(params)}")
             set_batch_count(model, get_adjusted_batch_count(params))
 
         params.batch_idx_train += 1
@@ -1003,6 +1033,7 @@ def train_one_epoch(
         supervisions = batch["supervisions"]
         if my_args is not None:
             my_args["supervisions"] = supervisions
+            my_args["batch"] = batch
 
         try:
             with torch.cuda.amp.autocast(enabled=params.use_fp16):
@@ -1030,7 +1061,7 @@ def train_one_epoch(
             scaler.update()
             optimizer.zero_grad()
 
-            logging.info(f"[epoch {params.cur_epoch} - batch {batch_idx}] loss: {loss}")
+            # logging.info(f"[epoch {params.cur_epoch} - batch {batch_idx}] loss: {loss}")
         except:  # noqa
             save_bad_model()
             display_and_save_batch(batch, params=params, sp=sp)
@@ -1506,6 +1537,7 @@ def run(rank, world_size, args):
     libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
     logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
     my_args = {"libri_long_text": libri_long_text}
+    # my_args = {}
 
     get_model_scrach_space(model, k="subsampling_factor", v=params.subsampling_factor, set_value=True)
     get_model_scrach_space(model, k="ctc_beam_size", v=params.ctc_beam_size, set_value=True)
@@ -1541,7 +1573,9 @@ def run(rank, world_size, args):
         logging.info("Loading grad scaler state dict")
         scaler.load_state_dict(checkpoints["grad_scaler"])
 
-    params.batch_idx_train *= 10
+    # params.batch_idx_train *= 10
+    if world_size == 1:
+        params.log_interval = 1
 
     for epoch in range(params.start_epoch, params.num_epochs + 1):
         scheduler.step_epoch(epoch - 1)
