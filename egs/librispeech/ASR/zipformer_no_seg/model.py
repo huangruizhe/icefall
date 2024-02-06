@@ -225,6 +225,9 @@ class AsrModel(nn.Module):
         # Compute CTC log-prob
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
 
+        if self.scratch_space["my_args"] is not None:
+            self.scratch_space["my_args"]["ctc_output"] = ctc_output
+
         ctc_loss = torch.nn.functional.ctc_loss(
             log_probs=ctc_output.permute(1, 0, 2),  # (T, N, C)
             targets=targets,
@@ -636,6 +639,9 @@ class AsrModel(nn.Module):
         # Compute CTC log-prob
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
 
+        if self.scratch_space["my_args"] is not None:
+            self.scratch_space["my_args"]["ctc_output"] = ctc_output
+
         supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
  
         # targets is a list of k2 fst
@@ -684,14 +690,25 @@ class AsrModel(nn.Module):
             use_double_scores=True,
         )
         token_ids = get_texts(best_path)
+        # TODO: we can get aligment time stamps here
         _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
         _token_ids = [token_ids[_indices[i]] for i in range(len(token_ids))]
         token_ids = _token_ids
+
+        if "libri_long_text_str" in self.scratch_space["my_args"] and self.scratch_space["my_args"]["libri_long_text_str"] is not None:
+            libri_long_text_str = self.scratch_space["my_args"]["libri_long_text_str"]
+            get_uid_key = self.scratch_space["get_uid_key"]
+            sp = self.scratch_space["sp"]
+            cuts = self.scratch_space["cuts"]
+            _texts = [libri_long_text_str[tuple(get_uid_key(c.id)[:2])][max(rg[0]-1, 0): rg[1]-1] for c, rg in zip(cuts, token_ids)]
+            _texts = [" ".join(t) for t in _texts]
+            token_ids = sp.encode(_texts, out_type=int)
 
         # compute wer for the batch
         if True:
             ref_texts = self.scratch_space["texts"]
             hyp_texts = self.scratch_space["sp"].decode(token_ids)
+            # logging.info(f"hyp_texts: {hyp_texts}")
             cuts = self.scratch_space["cuts"]
             results = [(c.id, ref.split(), hyp.split()) for c, hyp, ref in zip(cuts, hyp_texts, ref_texts)]
             cut_wer, wer = compute_wer(results)
@@ -701,6 +718,8 @@ class AsrModel(nn.Module):
         y = k2.RaggedTensor(token_ids)
         row_splits = y.shape.row_splits(1)
         y_lens = row_splits[1:] - row_splits[:-1]
+
+        logging.info(f"[epoch {self.scratch_space['params'].cur_epoch} - batch {self.scratch_space['params'].batch_idx_train}] hyps_lens: {sorted(y_lens.tolist())}")
 
         loss = torch.nn.functional.ctc_loss(
             log_probs=ctc_output.permute(1, 0, 2),  # (T, N, C)
@@ -882,8 +901,8 @@ class AsrModel(nn.Module):
         # # !import code; code.interact(local=vars())
 
         # if my_args is not None and "libri_long_text" in my_args:
-        if my_args is not None:
-            self.check_eval_wer(x, x_lens, y, y_long, my_args)
+        # if my_args is not None:
+        #     self.check_eval_wer(x, x_lens, y, y_long, my_args)
 
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)

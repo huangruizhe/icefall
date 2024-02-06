@@ -121,7 +121,7 @@ def get_adjusted_batch_count0(params: AttributeDict) -> float:
     )
 
 
-def get_adjusted_batch_count1(params: AttributeDict) -> float:
+def get_adjusted_batch_count(params: AttributeDict) -> float:
     # returns the number of batches we would have used so far if we had used the reference
     # duration.  This is for purposes of set_batch_count().
     return (
@@ -131,7 +131,7 @@ def get_adjusted_batch_count1(params: AttributeDict) -> float:
     )
 
 
-def get_adjusted_batch_count(params: AttributeDict) -> float:
+def get_adjusted_batch_count2(params: AttributeDict) -> float:
     # returns the number of batches we would have used so far if we had used the reference
     # duration.  This is for purposes of set_batch_count().
     return (
@@ -832,15 +832,15 @@ def compute_loss(
     #     texts_shuffled = random.sample(_texts, len(_texts))
     #     return _texts[:-3] + texts_shuffled[-3:]
 
-    def get_shorter_texts(_texts, _batch_idx):
-        # _i = int(_batch_idx / 2)
-        _i = min(_batch_idx, min(len(t) for t in _texts) - 1)
-        _texts = [t.split() for t in _texts]
-        if _batch_idx % 2 == 0:
-            _texts = [" ".join(t[_i:]) for t in _texts]
-        else:
-            _texts = [" ".join(t[:-_i]) for t in _texts]
-        return _texts
+    # def get_shorter_texts(_texts, _batch_idx):
+    #     # _i = int(_batch_idx / 2)
+    #     _i = min(_batch_idx, min(len(t) for t in _texts) - 1, 10)
+    #     _texts = [t.split() for t in _texts]
+    #     if _batch_idx % 2 == 0:
+    #         _texts = [" ".join(t[_i:]) for t in _texts]
+    #     else:
+    #         _texts = [" ".join(t[:-_i]) for t in _texts]
+    #     return _texts
 
     # def get_decoding_graphs(_texts):        
     #     fst_graph = k2.ctc_graph(sp.encode(_texts, out_type=int), modified=False, device='cpu')
@@ -850,8 +850,8 @@ def compute_loss(
     texts = batch["supervisions"]["text"]
     # if my_args is not None:
     #     texts = get_random_texts(texts)
-    if my_args is not None and "batch_idx" in my_args:
-        texts = get_shorter_texts(texts, my_args["batch_idx"])
+    # if my_args is not None and "batch_idx" in my_args:
+    #     texts = get_shorter_texts(texts, my_args["batch_idx"])
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y)
     
@@ -1068,7 +1068,20 @@ def train_one_epoch(
 
             # NOTE: We use reduction==sum and loss is computed over utterances
             # in the batch and there is no normalization to it so far.
-            scaler.scale(loss).backward()
+            
+            # option1:
+            # scaler.scale(loss).backward()
+            
+            # option2:
+            if my_args is not None:
+                loss1 = scaler.scale(loss)
+                grad_outputs = torch.autograd.grad(loss1, my_args["ctc_output"], retain_graph=True)
+                grad_outputs = grad_outputs[0]
+                grad_outputs[..., 0] = 0
+                my_args["ctc_output"].backward(grad_outputs)
+            else:
+                scaler.scale(loss).backward()
+            
             scheduler.step_batch(params.batch_idx_train)
 
             scaler.step(optimizer)
@@ -1224,6 +1237,7 @@ def convert_long_text_to_fst(items, sp, pid, results):
         # libri_long_text_sp[k] = make_factor_transducer1(sp.encode(text, out_type=int), return_str=True, blank_penalty=0)
         # libri_long_text_sp[k] = make_factor_transducer2(sp.encode(text, out_type=int), return_str=True, blank_penalty=-12)
         libri_long_text_sp[k] = make_factor_transducer3(sp.encode(text, out_type=int), word_start_symbols=[i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')], return_str=True, blank_penalty=0)
+        # libri_long_text_sp[k] = make_factor_transducer4(sp.encode(text, out_type=int), word_start_symbols=[i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')], return_str=True, blank_penalty=0)
     results[pid] = libri_long_text_sp
 
 
@@ -1245,7 +1259,7 @@ def get_long_text(cuts, sp=None, make_fst=False):
         libri_long_text[k] = text
     
     if sp is None:
-        return libri_long_text
+        return libri_long_text, None
 
     logging.info(f"Converting long text to fst ... ")
 
@@ -1285,7 +1299,7 @@ def get_long_text(cuts, sp=None, make_fst=False):
     ram_usage = ram_info.percent
     logging.info(f"Current RAM Usage: {ram_used_mb:.2f} MB out of {ram_total_mb:.2f} MB ({ram_usage}%)")
 
-    return libri_long_text_sp
+    return libri_long_text, libri_long_text_sp
 
 
 def make_factor_transducer1(word_id_list, return_str=False, blank_penalty=0):
@@ -1396,6 +1410,61 @@ def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, 
     new_arcs = [[str(i) for i in arc] for arc in new_arcs]
     new_arcs = [" ".join(arc) for arc in new_arcs]
     new_arcs = "\n".join(new_arcs)
+
+    if return_str:
+        return new_arcs
+    else:
+        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
+        return fst
+
+
+class MyCounter: 
+    def __init__(self): self.counter1 = 0; self.counter2 = 1; self.counter2_ = 0
+    # def __call__(self): self.counter += 1; return self.counter
+    def f1(self): 
+        self.counter1 += 1; return self.counter1
+    def f2(self): 
+        self.counter2_ += 1; 
+        if self.counter2_ % 2 == 1: self.counter2 += 1; 
+        return self.counter2
+
+
+def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
+    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
+
+    c_str = k2.to_str_simple(fst_graph)
+    arcs = c_str.strip().split("\n")
+    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
+    final_state = int(arcs[-1])
+    
+    arcs = arcs[:-1]
+    arcs = [tuple(map(int, a.split())) for a in arcs]
+    # ss, ee, l1, l2, w = arc
+
+    counter = MyCounter()
+
+    non_eps_nodes1 = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
+    non_eps_nodes1 = sorted(non_eps_nodes1, key=lambda x: x[0])
+    non_eps_nodes2 = list((arc[0], arc[1]) for arc in arcs if arc[3] < 0 or (arc[3] > 0 and arc[3] in word_start_symbols and arc[0] > 0))   # if this node has a non-eps, word-start out-going arc
+    self_loops = {ss: l1 for ss, ee, l1, l2, w in arcs if ss == ee}
+
+    arcs = [arcs[0]] + arcs[2:-5] + [a for a in arcs[-5:] if a[2] >= 0]
+    arcs = [[ss, ee, l1, 0, w] for ss, ee, l1, l2, w in arcs]
+    arcs += [(0, n, l, counter.f1(), 0) for n, l in non_eps_nodes1]
+    arcs += [(n, final_state, self_loops[n], counter.f2(), 0) for n, l in non_eps_nodes2]
+    arcs += [(final_state, final_state + 1, -1, -1, 0)]
+    
+    # non_eps_nodes2 = [(n, l) for n, l in non_eps_nodes2 if 0 < n < final_state - 2]
+    
+    new_arcs = arcs
+    new_arcs.append([final_state + 1])
+
+    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
+    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
+    new_arcs = [" ".join(arc) for arc in new_arcs]
+    new_arcs = "\n".join(new_arcs)
+
+    # print(new_arcs)
 
     if return_str:
         return new_arcs
@@ -1548,9 +1617,11 @@ def run(rank, world_size, args):
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
 
     # get long text for each recording
-    # libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
+    # libri_long_text_str, libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
+    # libri_long_text_str = {k: v.split() for k, v in libri_long_text_str.items()}
     # logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
     # my_args = {"libri_long_text": libri_long_text}
+    # # my_args |= {"libri_long_text_str": libri_long_text_str}  # Only for make_factor_transducer4
     my_args = {}
 
     get_model_scrach_space(model, k="subsampling_factor", v=params.subsampling_factor, set_value=True)
@@ -1558,6 +1629,7 @@ def run(rank, world_size, args):
     get_model_scrach_space(model, k="sp", v=sp, set_value=True)
     get_model_scrach_space(model, k="params", v=params, set_value=True)
     get_model_scrach_space(model, k="make_factor_transducer1", v=make_factor_transducer1, set_value=True)
+    get_model_scrach_space(model, k="get_uid_key", v=get_uid_key, set_value=True)
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint
