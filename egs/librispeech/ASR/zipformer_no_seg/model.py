@@ -339,6 +339,8 @@ class AsrModel(nn.Module):
         # logging.info(f"[{max_wer_cut_id}: hyp] {entry[2]}")
         # logging.info(f"[{max_wer_cut_id} batch] {[f'{val[0]:.2f}' for val in sorted(cut_wer.values(), key=lambda x: x[0], reverse=True)]}")
 
+        return cut_wer, wer
+
     def get_log_priors_batch(self, log_probs, input_lengths):
         # log_probs:  (N, T, C)
         # input_lengths:  (N,)
@@ -359,13 +361,14 @@ class AsrModel(nn.Module):
 
         return log_priors
 
-    def check_eval_wer(self, x, x_lens, y, y_list, my_args):
+    def check_eval_wer(self, x, x_lens, y, y_list, my_args, is_eval=True):
         # !import code; code.interact(local=vars())
         # _=self.eval()
         # _=self.train()
         # self.training
         
-        _=self.eval()
+        if is_eval:
+            _=self.eval()
         self.training
 
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
@@ -409,6 +412,85 @@ class AsrModel(nn.Module):
         _=self.train()
 
 
+    def get_batch_masks1(self, lattice, encoder_out_lens, indices):
+        # generate the batch masks, where the imperfectly/not-fully aligned utterances will be discarded
+
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+        decoding_results = get_texts_with_timestamp(best_path)
+        timestamps = decoding_results.timestamps
+        hyps = decoding_results.hyps
+        scores = best_path.get_tot_scores(
+            log_semiring=True, use_double_scores=True,
+        ).detach().to(torch.float32).tolist()
+
+        hh = self.scratch_space["sp"].decode(hyps)
+
+        supervisions = self.scratch_space["my_args"]["supervisions"]
+        texts = supervisions["text"]
+        cuts = supervisions['cut']
+
+        hyps_lens = [len(h) for h in hyps]
+
+        tt = [(ts[0], ts[-1]) for ts in timestamps]
+
+        cut_wer, wer = self.check_lattice3(lattice, indices)
+
+        texts = [texts[i] for i in indices.tolist()]
+        cuts = [cuts[i] for i in indices.tolist()]
+        cuts_ids = [c.id for c in cuts]
+        dels = [cut_wer[c.id][1][-1] for c in cuts]
+        scores = [scores[i] for i in indices.tolist()]
+
+        assert all([len(t1.split()) == sum(cut_wer[t2][1]) - cut_wer[t2][1][2] for t1, t2 in zip(texts, cuts_ids)])
+
+        inspection = list(enumerate(zip(tt, encoder_out_lens.tolist(), dels, hyps_lens, scores)))
+        inspection = [ii + (ii[1][1] - ii[1][0][1],) for ii in inspection]
+        print(*inspection, sep="\n")
+
+        breakpoint()
+        # !import code; code.interact(local=vars())
+        pass
+
+    def aux_loss_unsupervised_ce(self, log_probs, encoder_out_lens, bin_size=10):
+        x = torch.zeros(log_probs.size(0), log_probs.size(1), 2)
+        x[..., 0] = log_probs[..., 0]
+        x[..., 1] = log_probs[..., 1:].exp().sum(dim=-1).log()
+        # bis, tis = torch.nonzero(x.argmax(dim=-1) == 1, as_tuple=True)
+
+        num_bins = encoder_out_lens // bin_size
+        eps_bins = []
+        for i in range(x.size(0)):
+            # Discard the incomplete bins for the current sequence
+            x_i = x[i, :num_bins[i]*bin_size]
+            
+            # Reshape the tensor to group the vectors into bins
+            x_i = x_i.view(-1, bin_size, 2)
+            
+            # Get the argmax along the last dimension for each bin
+            argmaxes = x_i.argmax(dim=-1)
+
+            # Check if any of the argmaxes are not 0
+            mask = (argmaxes != 0).any(dim=-1)
+
+            # Get the bins where any of the argmaxes are not 0
+            x_i_1 = x_i[~mask]
+            x_i_0 = x_i[~mask]
+            
+            # Add the result to the list
+            eps_bins.append(x_i_0)
+        eps_bins = torch.cat(eps_bins, dim=0)
+        eps_bins = eps_bins.view(-1, 2)
+
+        inputs = eps_bins[..., 0].exp()
+        targets = torch.zeros(eps_bins.size(0))
+        breakpoint()
+        loss = nn.functional.binary_cross_entropy(inputs, targets, reduction = "sum")
+        return loss
+
+
     def forward_ctc_long_form1(
         self,
         encoder_out: torch.Tensor,
@@ -447,7 +529,7 @@ class AsrModel(nn.Module):
             ctc_output = ctc_output - penalty
             ctc_output = nn.functional.log_softmax(ctc_output, dim=-1)
 
-        supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
+        supervision_segments, _, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
         # my_args = self.scratch_space["my_args"]
         # supervisions = my_args["supervisions"]
         # supervision_segments = torch.stack(
@@ -597,6 +679,8 @@ class AsrModel(nn.Module):
         # loss = -1 * tot_scores
         # loss = loss.to(torch.float32)
 
+        # self.get_batch_masks(lattice, supervision_segments[...,-1], indices)
+
         # Option2: total score:
         tot_scores = lattice.get_tot_scores(
             log_semiring=True, use_double_scores=True,
@@ -607,9 +691,11 @@ class AsrModel(nn.Module):
         # breakpoint()
         inf_indices = torch.where(torch.isinf(loss))
         if inf_indices[0].size(0) > 0:
-          loss[inf_indices] = 0
-          loss[inf_indices].detach()
-          self.scratch_space["inf_indices"] = inf_indices
+            loss[inf_indices] = 0
+            loss[inf_indices].detach()
+            _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
+            _indices = torch.tensor([_indices[i] for i in range(len(_indices))])
+            self.scratch_space["inf_indices"] = inf_indices[_indices]
 
         ctc_loss = loss.sum()
 
@@ -624,14 +710,18 @@ class AsrModel(nn.Module):
         #       g(t) = (1/a * t)^-1   # where when t is small g(t) is large, when t=a then g(t)=1,  "a" is a hyper-parameter
         #       loss = g(t) * log_probs[:,:,0]
         #
-        # def aux_loss(_log_probs, _m=4.0):
+        # def get_aux_loss(_log_probs, _m=4.0):
         #   # t = len(torch.unique(_log_probs.argmax(-1)))
         #   t = (log_probs.argmax(-1) != 0).sum().item()
         #   g_t = (1/_m * max(t - 0.7, 1e-3))**(-1)  # g(t) is a scalar coefficient
         #   g_t = g_t if g_t > 1 else 0
         #   return g_t * -torch.log(-_log_probs[...,0]).sum()
+
+        # aux_loss = get_aux_loss(log_probs, _m=10.0)
+        # aux_loss = self.aux_loss_unsupervised_ce(log_probs, encoder_out_lens, bin_size=20)
+        aux_loss = torch.tensor(0) 
                       
-        return ctc_loss, torch.tensor(0)  # aux_loss(log_probs, _m=10.0)
+        return ctc_loss, aux_loss
 
     def forward_ctc_long_form2(
         self,
@@ -743,11 +833,14 @@ class AsrModel(nn.Module):
             reduction='none',
         )
 
-        inf_indices = torch.where(torch.isinf(loss))
-        if inf_indices[0].size(0) > 0:
-          loss[inf_indices] = 0
-          loss[inf_indices].detach()
-          self.scratch_space["inf_indices"] = inf_indices
+        if True:
+            inf_indices = torch.where(torch.isinf(loss))
+            if inf_indices[0].size(0) > 0:
+                loss[inf_indices] = 0
+                loss[inf_indices].detach()
+                _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
+                _indices = torch.tensor([_indices[i] for i in range(len(_indices))])
+                self.scratch_space["inf_indices"] = inf_indices[_indices]
 
         ctc_loss = loss.sum()
                       
@@ -916,7 +1009,7 @@ class AsrModel(nn.Module):
 
         # if my_args is not None and "libri_long_text" in my_args:
         if my_args is not None:
-            self.check_eval_wer(x, x_lens, y, y_long, my_args)
+            self.check_eval_wer(x, x_lens, y, y_long, my_args, is_eval=False)
 
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
@@ -950,8 +1043,8 @@ class AsrModel(nn.Module):
             # torch.cuda.memory_reserved(0)/1024/1024
             # torch.cuda.memory_allocated(0)/1024/1024
 
-            # if True:
-            if not self.training or my_args is None or "libri_long_text" not in my_args:
+            if True:
+            # if not self.training or my_args is None or "libri_long_text" not in my_args:
                 ctc_loss, ctc_aux_loss = self.forward_ctc(
                     encoder_out=encoder_out,
                     encoder_out_lens=encoder_out_lens,

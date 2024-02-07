@@ -970,8 +970,9 @@ def train_one_epoch(
                 # logging.info(f"here: {loss} vs. {loss1}")
                 grad_outputs = torch.autograd.grad(loss1, md.ctc_output_cached, retain_graph=True)
                 grad_outputs = grad_outputs[0]
-                grad_outputs[..., 0] = 0
+                # grad_outputs[..., 0] = 0
                 # grad_outputs[..., 0] *= 0.1
+                # grad_outputs[..., 0] = grad_outputs[..., 0].clamp(min=0)
                 md.ctc_output_cached.backward(grad_outputs)
             else:
                 scaler.scale(loss).backward()

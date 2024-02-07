@@ -903,7 +903,7 @@ def compute_loss(
             if my_args is not None and "libri_long_text" in my_args:
                 # loss += params.ctc_loss_scale * ctc_loss
                 loss += params.ctc_loss_scale * ctc_loss_long
-                # loss += params.ctc_loss_scale * 0.1 * ctc_aux_loss
+                # loss += params.ctc_loss_scale * 0.3 * ctc_aux_loss
             else:
                 loss += params.ctc_loss_scale * ctc_loss
 
@@ -1070,19 +1070,21 @@ def train_one_epoch(
             # in the batch and there is no normalization to it so far.
             
             # option1:
-            # scaler.scale(loss).backward()
+            scaler.scale(loss).backward()
             
-            # option2:
-            if my_args is not None:
-                loss1 = scaler.scale(loss)
-                # logging.info(f"here: {loss} vs. {loss1}")
-                grad_outputs = torch.autograd.grad(loss1, my_args["ctc_output"], retain_graph=True)
-                grad_outputs = grad_outputs[0]
-                grad_outputs[..., 0] = 0
-                # grad_outputs[..., 0] *= 0.1
-                my_args["ctc_output"].backward(grad_outputs)
-            else:
-                scaler.scale(loss).backward()
+            # # option2:
+            # if my_args is not None:
+            #     loss1 = scaler.scale(loss)
+            #     # logging.info(f"here: {loss} vs. {loss1}")
+            #     grad_outputs = torch.autograd.grad(loss1, my_args["ctc_output"], retain_graph=True)
+            #     grad_outputs = grad_outputs[0]
+            #     grad_outputs[..., 0] = 0
+            #     # grad_outputs[..., 0] *= 0.1
+            #     # grad_outputs[..., 0] = grad_outputs[..., 0].clamp(min=0)
+            #     # grad_outputs[..., 0] *= 5.0
+            #     my_args["ctc_output"].backward(grad_outputs)
+            # else:
+            #     scaler.scale(loss).backward()
             
             scheduler.step_batch(params.batch_idx_train)
 
