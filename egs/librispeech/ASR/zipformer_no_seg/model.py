@@ -29,7 +29,7 @@ from encoder_interface import EncoderInterface
 from icefall.utils import add_sos, make_pad_mask
 from scaling import ScaledLinear
 from icefall.decode import get_lattice, one_best_decoding
-from icefall.utils import get_alignments, get_texts
+from icefall.utils import get_alignments, get_texts, get_texts_with_timestamp
 
 import kaldialign
 
@@ -164,12 +164,19 @@ class AsrModel(nn.Module):
 
         self.use_ctc = use_ctc
         if use_ctc:
+            # # Modules for CTC head
+            # self.ctc_output = nn.Sequential(
+            #     nn.Dropout(p=0.1),
+            #     nn.Linear(encoder_dim, vocab_size),
+            #     nn.LogSoftmax(dim=-1),
+            # )
+
             # Modules for CTC head
             self.ctc_output = nn.Sequential(
                 nn.Dropout(p=0.1),
                 nn.Linear(encoder_dim, vocab_size),
-                nn.LogSoftmax(dim=-1),
             )
+            self.ctc_logsoftmax = nn.LogSoftmax(dim=-1)
         
         self.scratch_space = {}
 
@@ -224,9 +231,9 @@ class AsrModel(nn.Module):
         """
         # Compute CTC log-prob
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
-
         if self.scratch_space["my_args"] is not None:
             self.scratch_space["my_args"]["ctc_output"] = ctc_output
+        ctc_output = self.ctc_logsoftmax(ctc_output)  # (N, T, C)
 
         ctc_loss = torch.nn.functional.ctc_loss(
             log_probs=ctc_output.permute(1, 0, 2),  # (T, N, C)
@@ -304,6 +311,7 @@ class AsrModel(nn.Module):
             use_double_scores=True,
         )
         token_ids = get_texts(best_path)
+        hyps_lens = [len(t) for t in token_ids]
         hyps = self.scratch_space["sp"].decode(token_ids)
 
         supervisions = self.scratch_space["my_args"]["supervisions"]
@@ -322,6 +330,7 @@ class AsrModel(nn.Module):
         # compute wer for the batch
         cut_wer, wer = compute_wer(results)
         logging.info(f"[epoch {params.cur_epoch} - batch {params.batch_idx_train}] [batch_size: {len(texts)}] wer: {wer}")
+        logging.info(f"[epoch {self.scratch_space['params'].cur_epoch} - batch {self.scratch_space['params'].batch_idx_train}] hyps_lens: {sorted(hyps_lens)}")
 
         # max_wer_cut_id = max(cut_wer, key=lambda cut_id: cut_wer[cut_id][0])
         # entry = next((cut_id, ref_words, hyp_words) for cut_id, ref_words, hyp_words in results if cut_id == max_wer_cut_id)
@@ -361,6 +370,7 @@ class AsrModel(nn.Module):
 
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
+        ctc_output = self.ctc_logsoftmax(ctc_output)  # (N, T, C)
         
         supervision_segments, texts, indices = self.encode_supervisions(None, None, encoder_out_lens)
 
@@ -399,7 +409,7 @@ class AsrModel(nn.Module):
         _=self.train()
 
 
-    def forward_ctc_long_form(
+    def forward_ctc_long_form1(
         self,
         encoder_out: torch.Tensor,
         encoder_out_lens: torch.Tensor,
@@ -418,6 +428,9 @@ class AsrModel(nn.Module):
         """
         # Compute CTC log-prob
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
+        if self.scratch_space["my_args"] is not None:
+            self.scratch_space["my_args"]["ctc_output"] = ctc_output
+        ctc_output = self.ctc_logsoftmax(ctc_output)  # (N, T, C)
 
         batch_size = ctc_output.size(0)
         t = (ctc_output.argmax(-1) != 0).sum().item()
@@ -573,23 +586,23 @@ class AsrModel(nn.Module):
         # print(f"num_arcs after pruning: {lattice.arcs.num_elements()}")
         # logging.info(f"LG in k2: #states: {lattice.shape[0]}, #arcs: {lattice.num_arcs}")
 
-        # Option1: best path
-        best_path = one_best_decoding(
-            lattice=lattice,
-            use_double_scores=True,
-        )
-        tot_scores = best_path.get_tot_scores(
-            log_semiring=True, use_double_scores=True,
-        )
-        loss = -1 * tot_scores
-        loss = loss.to(torch.float32)
-
-        # # Option2: total score:
-        # tot_scores = lattice.get_tot_scores(
+        # # Option1: best path
+        # best_path = one_best_decoding(
+        #     lattice=lattice,
+        #     use_double_scores=True,
+        # )
+        # tot_scores = best_path.get_tot_scores(
         #     log_semiring=True, use_double_scores=True,
         # )
         # loss = -1 * tot_scores
         # loss = loss.to(torch.float32)
+
+        # Option2: total score:
+        tot_scores = lattice.get_tot_scores(
+            log_semiring=True, use_double_scores=True,
+        )
+        loss = -1 * tot_scores
+        loss = loss.to(torch.float32)
 
         # breakpoint()
         inf_indices = torch.where(torch.isinf(loss))
@@ -610,12 +623,13 @@ class AsrModel(nn.Module):
         #       t = the number of spikes
         #       g(t) = (1/a * t)^-1   # where when t is small g(t) is large, when t=a then g(t)=1,  "a" is a hyper-parameter
         #       loss = g(t) * log_probs[:,:,0]
-        def aux_loss(_log_probs, _m=4.0):
-          # t = len(torch.unique(_log_probs.argmax(-1)))
-          t = (log_probs.argmax(-1) != 0).sum().item()
-          g_t = (1/_m * max(t - 0.7, 1e-3))**(-1)  # g(t) is a scalar coefficient
-          g_t = g_t if g_t > 1 else 0
-          return g_t * -torch.log(-_log_probs[...,0]).sum()
+        #
+        # def aux_loss(_log_probs, _m=4.0):
+        #   # t = len(torch.unique(_log_probs.argmax(-1)))
+        #   t = (log_probs.argmax(-1) != 0).sum().item()
+        #   g_t = (1/_m * max(t - 0.7, 1e-3))**(-1)  # g(t) is a scalar coefficient
+        #   g_t = g_t if g_t > 1 else 0
+        #   return g_t * -torch.log(-_log_probs[...,0]).sum()
                       
         return ctc_loss, torch.tensor(0)  # aux_loss(log_probs, _m=10.0)
 
@@ -638,9 +652,9 @@ class AsrModel(nn.Module):
         """
         # Compute CTC log-prob
         ctc_output = self.ctc_output(encoder_out)  # (N, T, C)
-
         if self.scratch_space["my_args"] is not None:
             self.scratch_space["my_args"]["ctc_output"] = ctc_output
+        ctc_output = self.ctc_logsoftmax(ctc_output)  # (N, T, C)
 
         supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, encoder_out_lens)
  
@@ -901,8 +915,8 @@ class AsrModel(nn.Module):
         # # !import code; code.interact(local=vars())
 
         # if my_args is not None and "libri_long_text" in my_args:
-        # if my_args is not None:
-        #     self.check_eval_wer(x, x_lens, y, y_long, my_args)
+        if my_args is not None:
+            self.check_eval_wer(x, x_lens, y, y_long, my_args)
 
         # Compute encoder outputs
         encoder_out, encoder_out_lens = self.forward_encoder(x, x_lens)
@@ -948,7 +962,7 @@ class AsrModel(nn.Module):
                 ctc_loss, ctc_aux_loss = torch.tensor(0), torch.tensor(0)
 
             if my_args is not None and "libri_long_text" in my_args and self.training:
-                ctc_loss_long, ctc_aux_loss = self.forward_ctc_long_form2(
+                ctc_loss_long, ctc_aux_loss = self.forward_ctc_long_form1(
                     encoder_out=encoder_out,
                     encoder_out_lens=encoder_out_lens,
                     targets=y_long,

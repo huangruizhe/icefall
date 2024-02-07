@@ -1075,9 +1075,11 @@ def train_one_epoch(
             # option2:
             if my_args is not None:
                 loss1 = scaler.scale(loss)
+                # logging.info(f"here: {loss} vs. {loss1}")
                 grad_outputs = torch.autograd.grad(loss1, my_args["ctc_output"], retain_graph=True)
                 grad_outputs = grad_outputs[0]
                 grad_outputs[..., 0] = 0
+                # grad_outputs[..., 0] *= 0.1
                 my_args["ctc_output"].backward(grad_outputs)
             else:
                 scaler.scale(loss).backward()
@@ -1617,12 +1619,12 @@ def run(rank, world_size, args):
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
 
     # get long text for each recording
-    # libri_long_text_str, libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
-    # libri_long_text_str = {k: v.split() for k, v in libri_long_text_str.items()}
-    # logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
-    # my_args = {"libri_long_text": libri_long_text}
+    libri_long_text_str, libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
+    libri_long_text_str = {k: v.split() for k, v in libri_long_text_str.items()}
+    logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
+    my_args = {"libri_long_text": libri_long_text}
     # # my_args |= {"libri_long_text_str": libri_long_text_str}  # Only for make_factor_transducer4
-    my_args = {}
+    # my_args = {}
 
     get_model_scrach_space(model, k="subsampling_factor", v=params.subsampling_factor, set_value=True)
     get_model_scrach_space(model, k="ctc_beam_size", v=params.ctc_beam_size, set_value=True)

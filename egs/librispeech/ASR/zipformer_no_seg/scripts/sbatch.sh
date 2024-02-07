@@ -96,6 +96,7 @@ echo "Done: `date`"
 # ssh -L 16006:127.0.0.1:6006 rhuang25@login.rockfish.jhu.edu
 # http://localhost:16006 
 
+# tensorboard --logdir /home/rhuang25/work/icefall/egs/librispeech/ASR/zipformer_no_seg/exp-test/tensorboard/cmp/ --port 6006
 
 #########################
 # Get a seed model first on a small subset
@@ -154,4 +155,26 @@ echo "Done: `date`"
 # ctc-decoding  13.29      29.01
 # 1best         9.95       23.26
 
+
+# #### zero_grad experiments: ####
+#
+# exp_dir=zipformer_zero_grad/exp-test
+
+# echo
+# echo "exp_dir:" $exp_dir
+# echo
+
+# python zipformer_zero_grad/train.py \
+#   --world-size 4 \
+#   --num-epochs 40 \
+#   --start-epoch 1 \
+#   --use-fp16 true \
+#   --master-port 12535 \
+#   --causal false \
+#   --full-libri true \
+#   --use-transducer false \
+#   --use-ctc true \
+#   --ctc-loss-scale 1.0 \
+#   --exp-dir $exp_dir \
+#   --max-duration 1200 --num-workers 3 
 
