@@ -58,15 +58,6 @@ import warnings
 from pathlib import Path
 from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
-from collections import defaultdict
-import pickle
-
-import psutil
-import torch.multiprocessing as mp
-try:
-    from tqdm_loggable.auto import tqdm
-except:
-    from tqdm import tqdm
 
 import k2
 import optim
@@ -111,7 +102,7 @@ from icefall.utils import (
 LRSchedulerType = Union[torch.optim.lr_scheduler._LRScheduler, optim.LRScheduler]
 
 
-def get_adjusted_batch_count0(params: AttributeDict) -> float:
+def get_adjusted_batch_count(params: AttributeDict) -> float:
     # returns the number of batches we would have used so far if we had used the reference
     # duration.  This is for purposes of set_batch_count().
     return (
@@ -121,7 +112,7 @@ def get_adjusted_batch_count0(params: AttributeDict) -> float:
     )
 
 
-def get_adjusted_batch_count(params: AttributeDict) -> float:
+def get_adjusted_batch_count2(params: AttributeDict) -> float:
     # returns the number of batches we would have used so far if we had used the reference
     # duration.  This is for purposes of set_batch_count().
     return (
@@ -131,17 +122,8 @@ def get_adjusted_batch_count(params: AttributeDict) -> float:
     )
 
 
-def get_adjusted_batch_count2(params: AttributeDict) -> float:
-    # returns the number of batches we would have used so far if we had used the reference
-    # duration.  This is for purposes of set_batch_count().
-    return (
-        (10602 + params.batch_idx_train)
-        * (params.max_duration * params.world_size)
-        / params.ref_duration
-    )
-
-
 def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
+    logging.info(f"Setting batch_count to {batch_count}")
     if isinstance(model, DDP):
         # get underlying nn.Module
         model = model.module
@@ -285,13 +267,6 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         type=str2bool,
         default=False,
         help="If True, use CTC head.",
-    )
-
-    parser.add_argument(
-        "--ctc-beam-size",
-        type=int,
-        default=10,
-        help="ctc_beam_size for ctc loss",
     )
 
 
@@ -563,12 +538,13 @@ def get_params() -> AttributeDict:
             "batch_idx_train": 0,
             "log_interval": 50,
             "reset_interval": 200,
-            "valid_interval": 1000,  # For the 100h subset, use 800
+            "valid_interval": 3000,  # For the 100h subset, use 800
             # parameters for zipformer
             "feature_dim": 80,
             "subsampling_factor": 4,  # not passed in, this is fixed.
             "warm_step": 2000,
             "env_info": get_env_info(),
+            "HLG": None
         }
     )
 
@@ -727,10 +703,7 @@ def load_checkpoint_if_available(
         "best_valid_loss",
     ]
     for k in keys:
-        try:
-            params[k] = saved_params[k]
-        except:
-            pass
+        params[k] = saved_params[k]
 
     if params.start_batch > 0:
         if "cur_epoch" in saved_params:
@@ -789,13 +762,188 @@ def save_checkpoint(
         copyfile(src=filename, dst=best_valid_filename)
 
 
+from typing import List, Optional, Union, Tuple
+from collections import defaultdict
+from icefall.decode import get_lattice, one_best_decoding, nbest_decoding
+from icefall.utils import get_alignments, get_texts, get_texts_with_timestamp
+from icefall.lexicon import Lexicon
+
+import kaldialign
+
+
+def compute_wer(results):
+    subs = defaultdict(int)
+    ins = defaultdict(int)
+    dels = defaultdict(int)
+
+    # `words` stores counts per word, as follows:
+    #   corr, ref_sub, hyp_sub, ins, dels
+    words = defaultdict(lambda: [0, 0, 0, 0, 0])
+    num_corr = 0
+    ERR = "*"
+
+    # if compute_CER:
+    #     for i, res in enumerate(results):
+    #         cut_id, ref, hyp = res
+    #         ref = list("".join(ref))
+    #         hyp = list("".join(hyp))
+    #         results[i] = (cut_id, ref, hyp)
+    sclite_mode = False
+
+    cut_wers = {}
+
+    for cut_id, ref, hyp in results:
+        ali = kaldialign.align(ref, hyp, ERR, sclite_mode=sclite_mode)
+        cut_wer = [0, 0, 0, 0]  # corr, sub, ins, dels
+        for ref_word, hyp_word in ali:
+            if ref_word == ERR:
+                ins[hyp_word] += 1
+                words[hyp_word][3] += 1
+                cut_wer[2] += 1
+            elif hyp_word == ERR:
+                dels[ref_word] += 1
+                words[ref_word][4] += 1
+                cut_wer[3] += 1
+            elif hyp_word != ref_word:
+                subs[(ref_word, hyp_word)] += 1
+                words[ref_word][1] += 1
+                words[hyp_word][2] += 1
+                cut_wer[1] += 1
+            else:
+                words[ref_word][0] += 1
+                num_corr += 1
+                cut_wer[0] += 1
+        cut_wers[cut_id] = (sum(cut_wer[1:]) / (sum(cut_wer) - cut_wer[2]), cut_wer)
+    ref_len = sum([len(r) for _, r, _ in results])
+    sub_errs = sum(subs.values())
+    ins_errs = sum(ins.values())
+    del_errs = sum(dels.values())
+    tot_errs = sub_errs + ins_errs + del_errs
+    tot_err_rate = "%.2f" % (100.0 * tot_errs / ref_len)
+
+    return cut_wers, f"{tot_err_rate} [{tot_errs}/{ref_len}] [ins:{ins_errs}, del:{del_errs}, sub:{sub_errs}]"
+
+
+def decode(params, model, sp, batch):
+    _ = model.eval()
+
+    device = model.device if isinstance(model, DDP) else next(model.parameters()).device
+
+    # ctc_output = model.scratch_space["ctc_output"]
+    # ctc_output = ctc_output.detach()
+    # encoder_out_lens = model.scratch_space["encoder_out_lens"]
+
+    with torch.set_grad_enabled(False):
+        supervisions = batch["supervisions"]
+        feature_lens = supervisions["num_frames"].to(device)
+        feature = batch["inputs"]
+        assert feature.ndim == 3
+        feature = feature.to(device)
+        encoder_out, encoder_out_lens = model.forward_encoder(feature, feature_lens)
+        ctc_output = model.ctc_output(encoder_out)  # (N, T, C)
+
+    # supervision_segments, texts, indices = self.encode_supervisions(None, None, encoder_out_lens)
+    
+    # batch_size = encoder_out_lens.size(0)
+    # supervision_segments = torch.stack(
+    #     (
+    #         torch.arange(batch_size),
+    #         torch.zeros(batch_size),
+    #         encoder_out_lens.cpu(),
+    #     ),
+    #     1,
+    # ).to(torch.int32)
+
+    supervisions = batch["supervisions"]
+    supervision_segments = torch.stack(
+        (
+            supervisions["sequence_idx"],
+            torch.div(
+                supervisions["start_frame"],
+                params.subsampling_factor,
+                rounding_mode="floor",
+            ),
+            torch.div(
+                supervisions["num_frames"],
+                params.subsampling_factor,
+                rounding_mode="floor",
+            ),
+        ),
+        1,
+    ).to(torch.int32)
+
+    indices = torch.argsort(supervision_segments[:, 2], descending=True)
+    supervision_segments = supervision_segments[indices]
+
+    texts = batch["supervisions"]["text"]
+
+    # # Option 1:
+    # H = k2.ctc_topo(
+    #     max_token=499,
+    #     modified=False,
+    #     device=device,
+    # )
+    # decoding_graph = H
+
+    decoding_graph = params.HLG
+    word_table = params.lexicon.word_table
+
+    # breakpoint()
+            
+    lattice = get_lattice(
+        nnet_output=ctc_output,
+        decoding_graph=decoding_graph,
+        supervision_segments=supervision_segments,
+        search_beam=15,
+        output_beam=6,
+        min_active_states=30,
+        max_active_states=10000,
+        subsampling_factor=4,
+    )
+            
+    # self.check_lattice3(lattice, indices, supervisions, sp)
+    best_path = one_best_decoding(
+        lattice=lattice,
+        use_double_scores=True,
+    )
+    # best_path = nbest_decoding(
+    #     lattice=lattice,
+    #     num_paths=100,
+    #     use_double_scores=True,
+    #     nbest_scale=1.0,
+    # )
+    token_ids = get_texts(best_path)
+    hyps_lens = [len(t) for t in token_ids]
+    hyps = token_ids
+    hyps = [" ".join([word_table[i] for i in ids]) for ids in hyps]
+    # hyps = sp.decode(token_ids)
+
+    texts = supervisions["text"]
+    cuts = supervisions['cut']
+    cut_ids = [c.id for c in cuts]
+    results = list()
+    hyp_ref_lens = []
+    for i in range(len(texts)):
+        i_original = indices[i].item()
+        cut_id, hyp_text, ref_text = cut_ids[i_original], hyps[i], texts[i_original]
+        hyp_words = hyp_text.split()
+        ref_words = ref_text.split()
+        results.append((cut_id, ref_words, hyp_words))
+
+    # compute wer for the batch
+    cut_wer, wer = compute_wer(results)
+    print(f"[batch_size: {len(texts)}] wer: {wer}")
+    print(f"hyps_lens: {sorted(hyps_lens)}")
+
+    _ = model.train()
+
+
 def compute_loss(
     params: AttributeDict,
     model: Union[nn.Module, DDP],
     sp: spm.SentencePieceProcessor,
     batch: dict,
     is_training: bool,
-    my_args = None,
 ) -> Tuple[Tensor, MetricsTracker]:
     """
     Compute loss given the model and its inputs.
@@ -827,59 +975,44 @@ def compute_loss(
     batch_idx_train = params.batch_idx_train
     warm_step = params.warm_step
 
-    # def get_random_texts(_texts):
-    #     import random
-    #     texts_shuffled = random.sample(_texts, len(_texts))
-    #     return _texts[:-3] + texts_shuffled[-3:]
+    def get_shorter_texts(_texts, _batch_idx):
+        # _i = int(_batch_idx / 2)
+        if min([len(t.split()) for t in _texts]) < 15:
+            return _texts
 
-    # def get_shorter_texts(_texts, _batch_idx):
-    #     # _i = int(_batch_idx / 2)
-    #     _i = min(_batch_idx, min(len(t) for t in _texts) - 1, 10)
-    #     _texts = [t.split() for t in _texts]
-    #     if _batch_idx % 2 == 0:
-    #         _texts = [" ".join(t[_i:]) for t in _texts]
-    #     else:
-    #         _texts = [" ".join(t[:-_i]) for t in _texts]
-    #     return _texts
+        _i = min(_batch_idx, min(len(t) for t in _texts) - 3)
+        print(f"_batch_idx = {_batch_idx}, _i={_i}")
+        _texts = [t.split() for t in _texts]
+        if _batch_idx % 2 == 0:
+            _texts = [" ".join(t[_i:]) for t in _texts]
+        else:
+            _texts = [" ".join(t[:-_i]) for t in _texts]
+        return _texts
 
-    # def get_decoding_graphs(_texts):        
-    #     fst_graph = k2.ctc_graph(sp.encode(_texts, out_type=int), modified=False, device='cpu')
-    #     return [fst_graph[i] for i in range(fst_graph.shape[0])]
+    texts = batch["supervisions"]["text"].copy()
+    if is_training:
+        print(f"lens (before): [{[len(t.split()) for t in texts]}]")
+        # if min([len(t.split()) for t in texts]) > 15:
+        #     texts = [" ".join(t.split()[5:-5]) for t in texts]
+        # texts = get_shorter_texts(texts, params.batch_idx_train - 10602)
+        print(f"lens (after): [{[len(t.split()) for t in texts]}]")
 
-    # if my_args is None or "libri_long_text" not in my_args:
-    texts = batch["supervisions"]["text"]
-    # if my_args is not None:
-    #     texts = get_random_texts(texts)
-    # if my_args is not None and "batch_idx" in my_args:
-    #     texts = get_shorter_texts(texts, my_args["batch_idx"])
-    # texts = [" ".join(txt.split()[2:-2]) for txt in texts]
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y)
-    
-    cuts = batch['supervisions']['cut']
-    if my_args is not None and "libri_long_text" in my_args:
-        libri_long_text = my_args["libri_long_text"]
-        y_long = [libri_long_text[tuple(get_uid_key(c.id)[:2])] for c in cuts]
-        # y_long = get_decoding_graphs(texts)
-        # y_long = [make_factor_transducer1(sp.encode(text, out_type=int), return_str=False, blank_penalty=0) for text in texts]
-        # k2.ragged.create_ragged_tensor([ [1, 2], [5], [], [9] ])
-        # k2.ragged.create_ragged_tensor([ [1, 2], [5], [], [9] ]).tolist()
-    else:
-        y_long = None
-        
-    get_model_scrach_space(model, k="cuts", v=cuts, set_value=True)
-    get_model_scrach_space(model, k="texts", v=batch["supervisions"]["text"], set_value=True)
-    get_model_scrach_space(model, k="my_args", v=my_args, set_value=True)
+
+    md = model.module if isinstance(model, DDP) else model
+    md.scratch_space["batch"] = batch
+    md.scratch_space["sp"] = sp
 
     with torch.set_grad_enabled(is_training):
-        simple_loss, pruned_loss, ctc_loss, ctc_loss_long, ctc_aux_loss = model(
+        simple_loss, pruned_loss, ctc_loss = model(
             x=feature,
             x_lens=feature_lens,
-            y=(y, y_long),
+            y=y,
             prune_range=params.prune_range,
             am_scale=params.am_scale,
             lm_scale=params.lm_scale,
-            my_args=my_args,
+            # HLG = HLG if is_training else None,
         )
 
         loss = 0.0
@@ -901,23 +1034,9 @@ def compute_loss(
             loss += simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss
 
         if params.use_ctc:
-            if my_args is not None and "libri_long_text" in my_args:
-                # loss += params.ctc_loss_scale * ctc_loss
-                loss += params.ctc_loss_scale * ctc_loss_long
-                # loss += params.ctc_loss_scale * 0.3 * ctc_aux_loss
-            else:
-                loss += params.ctc_loss_scale * ctc_loss
+            loss += params.ctc_loss_scale * ctc_loss
 
     assert loss.requires_grad == is_training
-
-    mask_tt = get_model_scrach_space(model, k="mask_tt")
-    if mask_tt is not None:
-        feature_lens = torch.tensor([tt[1] - tt[0] for tt in mask_tt]).to(torch.int32)
-    else:
-        inf_indices = get_model_scrach_space(model, k="inf_indices")
-        if inf_indices is not None:
-            feature_lens[inf_indices] = 0
-            get_model_scrach_space(model, k="inf_indices", v=None, set_value=True)
 
     info = MetricsTracker()
     with warnings.catch_warnings():
@@ -931,8 +1050,6 @@ def compute_loss(
         info["pruned_loss"] = pruned_loss.detach().cpu().item()
     if params.use_ctc:
         info["ctc_loss"] = ctc_loss.detach().cpu().item()
-        info["ctc_aux_loss"] = ctc_aux_loss.detach().cpu().item()
-        info["ctc_loss_long"] = ctc_loss_long.detach().cpu().item()
 
     return loss, info
 
@@ -984,7 +1101,6 @@ def train_one_epoch(
     tb_writer: Optional[SummaryWriter] = None,
     world_size: int = 1,
     rank: int = 0,
-    my_args = None,
 ) -> None:
     """Train the model for one epoch.
 
@@ -1036,23 +1152,14 @@ def train_one_epoch(
             rank=0,
         )
 
-    get_model_scrach_space(model, k="log_priors", v=None, set_value=True)
-    get_model_scrach_space(model, k="priors_T", v=0, set_value=True)
-    get_model_scrach_space(model, k="rank", v=rank, set_value=True)
-
     for batch_idx, batch in enumerate(train_dl):
         if batch_idx % 10 == 0:
-            # logging.info(f"batch_idx={batch_idx} batch_idx_train={params.batch_idx_train}: batch_count={get_adjusted_batch_count(params)}")
             set_batch_count(model, get_adjusted_batch_count(params))
+
+        print(f"\nbatch_idx = {batch_idx}\n")
 
         params.batch_idx_train += 1
         batch_size = len(batch["supervisions"]["text"])
-
-        supervisions = batch["supervisions"]
-        if my_args is not None:
-            my_args["supervisions"] = supervisions
-            my_args["batch"] = batch
-            my_args["batch_idx"] = batch_idx
 
         try:
             with torch.cuda.amp.autocast(enabled=params.use_fp16):
@@ -1062,61 +1169,29 @@ def train_one_epoch(
                     sp=sp,
                     batch=batch,
                     is_training=True,
-                    my_args=my_args,
                 )
-
-            if torch.isinf(loss):
-                raise Exception
-
             # summary stats
             tot_loss = (tot_loss * (1 - 1 / params.reset_interval)) + loss_info
 
             # NOTE: We use reduction==sum and loss is computed over utterances
             # in the batch and there is no normalization to it so far.
-            
-            # option1:
-            # scaler.scale(loss).backward()
-            
-            # # option2:
-            if my_args is not None:
-                loss1 = scaler.scale(loss)
-                # logging.info(f"here: {loss} vs. {loss1}")
-                grad_outputs = torch.autograd.grad(loss1, my_args["ctc_output"], retain_graph=True)
-                grad_outputs = grad_outputs[0]
-                
-                # # Mask out gradients for eps
-                # grad_outputs[..., 0] = 0
-                # grad_outputs[..., 0] *= 0.1
-                grad_outputs[..., 0] = grad_outputs[..., 0].clamp(min=0)
-                # grad_outputs[..., 0] += 1.0
-                # grad_outputs[..., 0] *= 5.0
-                # grad_outputs = 0
-                
-                # mask_tt = get_model_scrach_space(model, k="mask_tt")
-                # for i, tt in enumerate(mask_tt):
-                #     grad_outputs[i, :tt[0], :] = 0
-                #     grad_outputs[i, tt[1] + 1:, :] = 0
-                
-                my_args["ctc_output"].backward(grad_outputs)
-            else:
-                scaler.scale(loss).backward()
-            
+            scaler.scale(loss).backward()
             scheduler.step_batch(params.batch_idx_train)
 
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
-
-            # logging.info(f"[epoch {params.cur_epoch} - batch {batch_idx}] loss: {loss}")
         except:  # noqa
             save_bad_model()
             display_and_save_batch(batch, params=params, sp=sp)
             raise
-            # logging.info(f"[epoch {params.cur_epoch} - batch {batch_idx}] skipped")
-            # continue
 
         if params.print_diagnostics and batch_idx == 5:
             return
+
+        with torch.set_grad_enabled(False):            
+            decode(params, model, sp, batch)
+
 
         if (
             rank == 0
@@ -1182,10 +1257,6 @@ def train_one_epoch(
                 + (f"grad_scale: {scaler._scale.item()}" if params.use_fp16 else "")
             )
 
-            # if rank == 0:
-            #     print("log_prior (clipped): ", ["{0:0.2f}".format(i) for i in model.module.scratch_space["log_priors"][0].tolist()])
-            #     print(f"logsumexp: {torch.logsumexp(model.module.scratch_space['log_priors'][0], dim=-1, keepdim=True)}")
-
             if tb_writer is not None:
                 tb_writer.add_scalar(
                     "train/learning_rate", cur_lr, params.batch_idx_train
@@ -1218,278 +1289,12 @@ def train_one_epoch(
                 valid_info.write_summary(
                     tb_writer, "train/valid_", params.batch_idx_train
                 )
-        
-        # if batch_idx > 100:
-        #     break
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
     if params.train_loss < params.best_train_loss:
         params.best_train_epoch = params.cur_epoch
         params.best_train_loss = params.train_loss
-
-
-def get_model_scrach_space(model, k, v=None, set_value=False):
-    if not set_value:  # get value
-        try:
-            return model.module.scratch_space.get(k, None)
-        except:
-            return model.scratch_space.get(k, None)
-    else:  # set value
-        try:
-            model.module.scratch_space[k] = v
-        except:
-            model.scratch_space[k] = v
-        return v
-        
-
-def get_uid_key(my_id):
-    # /data/skhudan1/corpora/librispeech/CHAPTERS.TXT
-    speaker_id, chapter_id, utterance_id, _ = my_id.split("-")
-    speaker_id, chapter_id, utterance_id = int(speaker_id), int(chapter_id), int(utterance_id)
-    return speaker_id, chapter_id, utterance_id
-
-
-def convert_long_text_to_fst(items, sp, pid, results):
-    libri_long_text_sp = dict()
-    for k, text in tqdm(items, mininterval=2, desc=f"libri_long_text [{pid}]"):
-        # libri_long_text_sp[k] = make_factor_transducer1(sp.encode(text, out_type=int), return_str=True, blank_penalty=0)
-        # libri_long_text_sp[k] = make_factor_transducer2(sp.encode(text, out_type=int), return_str=True, blank_penalty=-12)
-        libri_long_text_sp[k] = make_factor_transducer3(sp.encode(text, out_type=int), word_start_symbols=[i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')], return_str=True, blank_penalty=0)
-        # libri_long_text_sp[k] = make_factor_transducer4(sp.encode(text, out_type=int), word_start_symbols=[i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')], return_str=True, blank_penalty=0)
-    results[pid] = libri_long_text_sp
-
-
-def get_long_text(cuts, sp=None, make_fst=False):
-    logging.info(f"Getting long text from cuts ... ")  # len(cuts) = {len(cuts)}
-    cuts_by_recoding = defaultdict(list)
-    for i, c in enumerate(cuts):  # tqdm(cuts, miniters=1000, total=None):
-        if "_sp" in c.id:
-            continue
-        cuts_by_recoding[tuple(get_uid_key(c.id)[:2])].append(c)
-
-        # if i % 1e4 == 0:
-        #     print(f"progress: {i}")
-
-    libri_long_text = dict()
-    for k, v in cuts_by_recoding.items():
-        v.sort(key = lambda x: get_uid_key(x.id)[-1])
-        text = " ".join([c.supervisions[0].text for c in v])
-        libri_long_text[k] = text
-    
-    if sp is None:
-        return libri_long_text, None
-
-    logging.info(f"Converting long text to fst ... ")
-
-    if not make_fst:
-        libri_long_text_sp = dict()
-        for k, text in libri_long_text.items():
-            libri_long_text_sp[k] = sp.encode(text, out_type=int)
-    else:
-        processes = []
-        manager = mp.Manager()
-        # Fork processes
-        n_process = 6
-        items = list(libri_long_text.items())
-        chunk_size = int(len(items) / n_process) + 1
-        i_chunk = 0
-        results = manager.list([0] * n_process)
-        for i in range(0, len(items), chunk_size):
-            chunk = items[i: i+chunk_size]
-            fork = mp.Process(target=convert_long_text_to_fst,
-                            args=(chunk, sp, i_chunk, results))
-            fork.start()
-            processes.append(fork)
-            i_chunk += 1
-        # Wait until all processes are finished
-        for fork in processes:
-            fork.join()
-        
-        libri_long_text_sp = dict()
-        for rs in results:
-            libri_long_text_sp.update(rs)
-        for k, v in tqdm(libri_long_text_sp.items()):
-            libri_long_text_sp[k] = k2.Fsa.from_str(v, acceptor=False)
-    
-    ram_info = psutil.virtual_memory()
-    ram_used_mb = ram_info.used / (1024 ** 2)  # Convert bytes to megabytes
-    ram_total_mb = ram_info.total / (1024 ** 2)  # Convert bytes to megabytes
-    ram_usage = ram_info.percent
-    logging.info(f"Current RAM Usage: {ram_used_mb:.2f} MB out of {ram_total_mb:.2f} MB ({ram_usage}%)")
-
-    return libri_long_text, libri_long_text_sp
-
-
-def make_factor_transducer1(word_id_list, return_str=False, blank_penalty=0):
-    # This is the original, simplest factor transducer for a "linear" fst
-
-    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
-
-    c_str = k2.to_str_simple(fst_graph)
-    arcs = c_str.strip().split("\n")
-    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
-    final_state = int(arcs[-1])
-    
-    arcs = arcs[:-1]
-    arcs = [tuple(map(int, a.split())) for a in arcs]
-    # ss, ee, l1, l2, w = arc
-
-    non_eps_nodes = set((arc[1], arc[3]) for arc in arcs if arc[3] > -1)   # if this node has a non-eps in-coming arc
-    arcs += [(0, n, l, l, 0) for n, l in non_eps_nodes if n > 1]
-
-    arcs += [(n, final_state, -1, -1, 0) for n in range(1, final_state - 2)]
-
-    new_arcs = arcs
-    new_arcs.append([final_state])
-
-    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
-    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
-    new_arcs = [" ".join(arc) for arc in new_arcs]
-    new_arcs = "\n".join(new_arcs)
-
-    if return_str:
-        return new_arcs
-    else:
-        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
-        return fst
-
-
-def make_factor_transducer2(word_id_list, return_str=False, blank_penalty=-1):
-    # This is the factor transducer where blank symbols at the beginning and ending of the graph is penalized
-    # Last resort: use a cheap alignment model to get a subgraph of the big graph first
-
-    # blank_penalty should be negative
-
-    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
-
-    c_str = k2.to_str_simple(fst_graph)
-    arcs = c_str.strip().split("\n")
-    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
-    final_state = int(arcs[-1])
-    
-    arcs = arcs[:-1]
-    arcs = [tuple(map(int, a.split())) for a in arcs]
-    # ss, ee, l1, l2, w = arc
-
-    arc0 = arcs[0]
-    arcs_last = [a for a in arcs[-5:] if a[2] > 0]
-
-    arcs = [(0, 0, 0, 0, blank_penalty)] + arcs[1:-5] + arcs_last
-
-    non_eps_nodes = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0)   # if this node has a non-eps in-coming arc
-    arcs += [(0, n, l, l, 0) for n, l in non_eps_nodes if n > 1]
-
-    # arcs += [(n, final_state, -1, -1, 0) for n in range(1, final_state - 2)]
-    arcs += [(n, final_state - 1, 0, 0, blank_penalty) for n, l in non_eps_nodes]
-    arcs += [(final_state - 1, final_state - 1, 0, 0, blank_penalty)]
-    arcs += [(final_state - 1, final_state, -1, -1, 0)]
-
-    new_arcs = arcs
-    new_arcs.append([final_state])
-
-    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
-    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
-    new_arcs = [" ".join(arc) for arc in new_arcs]
-    new_arcs = "\n".join(new_arcs)
-
-    if return_str:
-        return new_arcs
-    else:
-        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
-        return fst
-
-
-def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
-    # This is a modification of make_factor_transducer1, where the factors are on "word-level"
-    # That is, the words always come as a whole
-
-    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
-
-    c_str = k2.to_str_simple(fst_graph)
-    arcs = c_str.strip().split("\n")
-    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
-    final_state = int(arcs[-1])
-    
-    arcs = arcs[:-1]
-    arcs = [tuple(map(int, a.split())) for a in arcs]
-    # ss, ee, l1, l2, w = arc
-
-    non_eps_nodes = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
-    arcs += [(0, n, l, l, 0) for n, l in non_eps_nodes if n > 1]
-
-    non_eps_nodes2 = set((arc[0], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start out-going arc
-    non_eps_nodes2 = [(n, l) for n, l in non_eps_nodes2 if 0 < n < final_state - 2]
-    arcs += [(n, final_state, -1, -1, 0) for n, l in non_eps_nodes2]
-
-    new_arcs = arcs
-    new_arcs.append([final_state])
-
-    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
-    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
-    new_arcs = [" ".join(arc) for arc in new_arcs]
-    new_arcs = "\n".join(new_arcs)
-
-    if return_str:
-        return new_arcs
-    else:
-        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
-        return fst
-
-
-class MyCounter: 
-    def __init__(self): self.counter1 = 0; self.counter2 = 1; self.counter2_ = 0
-    # def __call__(self): self.counter += 1; return self.counter
-    def f1(self): 
-        self.counter1 += 1; return self.counter1
-    def f2(self): 
-        self.counter2_ += 1; 
-        if self.counter2_ % 2 == 1: self.counter2 += 1; 
-        return self.counter2
-
-
-def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
-    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
-
-    c_str = k2.to_str_simple(fst_graph)
-    arcs = c_str.strip().split("\n")
-    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
-    final_state = int(arcs[-1])
-    
-    arcs = arcs[:-1]
-    arcs = [tuple(map(int, a.split())) for a in arcs]
-    # ss, ee, l1, l2, w = arc
-
-    counter = MyCounter()
-
-    non_eps_nodes1 = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
-    non_eps_nodes1 = sorted(non_eps_nodes1, key=lambda x: x[0])
-    non_eps_nodes2 = list((arc[0], arc[1]) for arc in arcs if arc[3] < 0 or (arc[3] > 0 and arc[3] in word_start_symbols and arc[0] > 0))   # if this node has a non-eps, word-start out-going arc
-    self_loops = {ss: l1 for ss, ee, l1, l2, w in arcs if ss == ee}
-
-    arcs = [arcs[0]] + arcs[2:-5] + [a for a in arcs[-5:] if a[2] >= 0]
-    arcs = [[ss, ee, l1, 0, w] for ss, ee, l1, l2, w in arcs]
-    arcs += [(0, n, l, counter.f1(), 0) for n, l in non_eps_nodes1]
-    arcs += [(n, final_state, self_loops[n], counter.f2(), 0) for n, l in non_eps_nodes2]
-    arcs += [(final_state, final_state + 1, -1, -1, 0)]
-    
-    # non_eps_nodes2 = [(n, l) for n, l in non_eps_nodes2 if 0 < n < final_state - 2]
-    
-    new_arcs = arcs
-    new_arcs.append([final_state + 1])
-
-    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
-    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
-    new_arcs = [" ".join(arc) for arc in new_arcs]
-    new_arcs = "\n".join(new_arcs)
-
-    # print(new_arcs)
-
-    if return_str:
-        return new_arcs
-    else:
-        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
-        return fst
 
 
 def run(rank, world_size, args):
@@ -1594,8 +1399,6 @@ def run(rank, world_size, args):
         train_cuts += librispeech.train_clean_360_cuts()
         train_cuts += librispeech.train_other_500_cuts()
 
-    # train_cuts = librispeech.test_clean_cuts() + librispeech.test_other_cuts()
-
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds
         #
@@ -1635,21 +1438,6 @@ def run(rank, world_size, args):
 
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
 
-    # get long text for each recording
-    libri_long_text_str, libri_long_text = get_long_text(train_cuts, sp=sp, make_fst=True)
-    libri_long_text_str = {k: v.split() for k, v in libri_long_text_str.items()}
-    logging.info(f"len(libri_long_text) = {len(libri_long_text)}")
-    my_args = {"libri_long_text": libri_long_text}
-    # # my_args |= {"libri_long_text_str": libri_long_text_str}  # Only for make_factor_transducer4
-    # my_args = {}
-
-    get_model_scrach_space(model, k="subsampling_factor", v=params.subsampling_factor, set_value=True)
-    get_model_scrach_space(model, k="ctc_beam_size", v=params.ctc_beam_size, set_value=True)
-    get_model_scrach_space(model, k="sp", v=sp, set_value=True)
-    get_model_scrach_space(model, k="params", v=params, set_value=True)
-    get_model_scrach_space(model, k="make_factor_transducer1", v=make_factor_transducer1, set_value=True)
-    get_model_scrach_space(model, k="get_uid_key", v=get_uid_key, set_value=True)
-
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint
         # saved in the middle of an epoch
@@ -1674,14 +1462,18 @@ def run(rank, world_size, args):
     #         params=params,
     #     )
 
+    params.HLG = k2.Fsa.from_dict(
+        torch.load(f"data/lang_bpe_500/HLG.pt", map_location=device)
+    )
+    params.lexicon = Lexicon("data/lang_bpe_500")
+    hlg_scale = 0.6
+    params.HLG.scores *= hlg_scale
+    assert params.HLG.requires_grad is False
+
     scaler = GradScaler(enabled=params.use_fp16, init_scale=1.0)
     if checkpoints and "grad_scaler" in checkpoints:
         logging.info("Loading grad scaler state dict")
         scaler.load_state_dict(checkpoints["grad_scaler"])
-
-    # params.batch_idx_train *= 10
-    if world_size == 1:
-        params.log_interval = 1
 
     for epoch in range(params.start_epoch, params.num_epochs + 1):
         scheduler.step_epoch(epoch - 1)
@@ -1706,7 +1498,6 @@ def run(rank, world_size, args):
             tb_writer=tb_writer,
             world_size=world_size,
             rank=rank,
-            my_args=my_args,
         )
 
         if params.print_diagnostics:
@@ -1819,8 +1610,8 @@ def main():
         run(rank=0, world_size=1, args=args)
 
 
-if __name__ == "__main__":
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 
+if __name__ == "__main__":
     main()

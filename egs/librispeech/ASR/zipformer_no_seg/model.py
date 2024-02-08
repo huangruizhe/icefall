@@ -421,38 +421,50 @@ class AsrModel(nn.Module):
         )
         decoding_results = get_texts_with_timestamp(best_path)
         timestamps = decoding_results.timestamps
-        hyps = decoding_results.hyps
-        scores = best_path.get_tot_scores(
-            log_semiring=True, use_double_scores=True,
-        ).detach().to(torch.float32).tolist()
+        # hyps = decoding_results.hyps
+        # scores = best_path.get_tot_scores(
+        #     log_semiring=True, use_double_scores=True,
+        # ).detach().to(torch.float32).tolist()
 
-        hh = self.scratch_space["sp"].decode(hyps)
+        # hh = self.scratch_space["sp"].decode(hyps)
 
-        supervisions = self.scratch_space["my_args"]["supervisions"]
-        texts = supervisions["text"]
-        cuts = supervisions['cut']
+        # supervisions = self.scratch_space["my_args"]["supervisions"]
+        # texts = supervisions["text"]
+        # cuts = supervisions['cut']
 
-        hyps_lens = [len(h) for h in hyps]
+        # hyps_lens = [len(h) for h in hyps]
 
         tt = [(ts[0], ts[-1]) for ts in timestamps]
+        mask_tt = [t[0] > 20 or (l - t[1]) > 20 or (t[1] - t[0])/l < 0.6 for t, l in zip(tt, encoder_out_lens.tolist())]
 
-        cut_wer, wer = self.check_lattice3(lattice, indices)
+        # cut_wer, wer = self.check_lattice3(lattice, indices)
 
-        texts = [texts[i] for i in indices.tolist()]
-        cuts = [cuts[i] for i in indices.tolist()]
-        cuts_ids = [c.id for c in cuts]
-        dels = [cut_wer[c.id][1][-1] for c in cuts]
-        scores = [scores[i] for i in indices.tolist()]
+        # texts = [texts[i] for i in indices.tolist()]
+        # cuts = [cuts[i] for i in indices.tolist()]
+        # cuts_ids = [c.id for c in cuts]
+        # dels = [cut_wer[c.id][1][-1] for c in cuts]
+        # scores = [scores[i] for i in indices.tolist()]
 
-        assert all([len(t1.split()) == sum(cut_wer[t2][1]) - cut_wer[t2][1][2] for t1, t2 in zip(texts, cuts_ids)])
+        # assert all([len(t1.split()) == sum(cut_wer[t2][1]) - cut_wer[t2][1][2] for t1, t2 in zip(texts, cuts_ids)])
 
-        inspection = list(enumerate(zip(tt, encoder_out_lens.tolist(), dels, hyps_lens, scores)))
-        inspection = [ii + (ii[1][1] - ii[1][0][1],) for ii in inspection]
-        print(*inspection, sep="\n")
+        # inspection = list(enumerate(zip(tt, encoder_out_lens.tolist(), dels, hyps_lens, scores)))
+        # inspection = [ii + (ii[1][1] - ii[1][0][1],) for ii in inspection]
+        # print(*inspection, sep="\n")
 
-        breakpoint()
+        # breakpoint()
         # !import code; code.interact(local=vars())
-        pass
+        
+        return mask_tt
+
+    def get_batch_masks2(self, lattice, encoder_out_lens, indices):
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+        decoding_results = get_texts_with_timestamp(best_path)
+        timestamps = decoding_results.timestamps
+        tt = [(ts[0], ts[-1]) for ts in timestamps]
+        return tt
 
     def aux_loss_unsupervised_ce(self, log_probs, encoder_out_lens, bin_size=10):
         x = torch.zeros(log_probs.size(0), log_probs.size(1), 2)
@@ -486,7 +498,6 @@ class AsrModel(nn.Module):
 
         inputs = eps_bins[..., 0].exp()
         targets = torch.zeros(eps_bins.size(0))
-        breakpoint()
         loss = nn.functional.binary_cross_entropy(inputs, targets, reduction = "sum")
         return loss
 
@@ -679,7 +690,10 @@ class AsrModel(nn.Module):
         # loss = -1 * tot_scores
         # loss = loss.to(torch.float32)
 
-        # self.get_batch_masks(lattice, supervision_segments[...,-1], indices)
+        mask_tt = self.get_batch_masks1(lattice, supervision_segments[...,-1], indices)
+        # mask_tt = self.get_batch_masks2(lattice, supervision_segments[...,-1], indices)
+        # self.scratch_space["mask_tt"] = mask_tt
+        mask_tt = []  # just to disable it
 
         # Option2: total score:
         tot_scores = lattice.get_tot_scores(
@@ -689,15 +703,31 @@ class AsrModel(nn.Module):
         loss = loss.to(torch.float32)
 
         # breakpoint()
-        inf_indices = torch.where(torch.isinf(loss))
-        if inf_indices[0].size(0) > 0:
-            loss[inf_indices] = 0
-            loss[inf_indices].detach()
-            _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
-            _indices = torch.tensor([_indices[i] for i in range(len(_indices))])
-            self.scratch_space["inf_indices"] = inf_indices[_indices]
-
-        ctc_loss = loss.sum()
+        inf_indices = torch.where(torch.isinf(loss))[0]
+        if any(mask_tt):
+            mask_tt_indices = torch.nonzero(torch.tensor(mask_tt)).squeeze().to(inf_indices.device)
+            inf_indices = torch.cat((inf_indices, mask_tt_indices))
+        if inf_indices.size(0) > 0:
+            # loss[inf_indices] = loss[inf_indices] - loss[inf_indices]
+            # loss[inf_indices] = loss[inf_indices] * 0
+            
+            # ctc_loss = loss[inf_indices].sum()
+            ctc_loss = 0
+            ignore_idx = set(inf_indices.tolist())
+            for i in range(len(loss)):
+                if i not in ignore_idx:
+                    ctc_loss = ctc_loss + loss[i]
+            
+            # mask = torch.ones_like(loss)
+            # mask[inf_indices] = 0
+            # loss = loss * mask
+            # loss[inf_indices].detach()
+            _indices = {i_new : i_old for i_new, i_old in enumerate(indices.tolist())}
+            for i in range(len(inf_indices)):
+                inf_indices[i] = _indices[inf_indices[i].item()]
+            self.scratch_space["inf_indices"] = inf_indices
+        else:
+            ctc_loss = loss.sum()
 
         # Compute an aux entropy loss to encourage the model to avoid empty sequence or to produce diversified results
         # The idea is:
@@ -720,7 +750,7 @@ class AsrModel(nn.Module):
         # aux_loss = get_aux_loss(log_probs, _m=10.0)
         # aux_loss = self.aux_loss_unsupervised_ce(log_probs, encoder_out_lens, bin_size=20)
         aux_loss = torch.tensor(0) 
-                      
+        
         return ctc_loss, aux_loss
 
     def forward_ctc_long_form2(
@@ -836,11 +866,14 @@ class AsrModel(nn.Module):
         if True:
             inf_indices = torch.where(torch.isinf(loss))
             if inf_indices[0].size(0) > 0:
-                loss[inf_indices] = 0
+                mask = torch.ones_like(loss)
+                mask[inf_indices] = 0
+                loss = loss * mask
                 loss[inf_indices].detach()
-                _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
-                _indices = torch.tensor([_indices[i] for i in range(len(_indices))])
-                self.scratch_space["inf_indices"] = inf_indices[_indices]
+                _indices = {i_new : i_old for i_new, i_old in enumerate(indices.tolist())}
+                for i in range(len(inf_indices)):
+                    inf_indices[i] = _indices[inf_indices[i].item()]
+                self.scratch_space["inf_indices"] = inf_indices
 
         ctc_loss = loss.sum()
                       

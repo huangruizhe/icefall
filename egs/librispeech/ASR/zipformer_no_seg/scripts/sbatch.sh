@@ -56,7 +56,7 @@ echo "exp_dir:" $exp_dir
 echo
 
 python zipformer_no_seg/train_concat_libri.py \
-  --world-size 1 \
+  --world-size 4 \
   --num-epochs 40 \
   --start-epoch 1 \
   --use-fp16 true \
@@ -68,7 +68,7 @@ python zipformer_no_seg/train_concat_libri.py \
   --ctc-loss-scale 1.0 \
   --exp-dir $exp_dir \
   --max-duration 400 --num-workers 3 \
-  --start-epoch 2 --ctc-beam-size 4
+  --start-epoch 15 --ctc-beam-size 4
 
 echo "Done: `date`"
 
@@ -145,12 +145,21 @@ echo "Done: `date`"
 #       --decoding-method $m
 # done
 
+# --epoch 20 --avg 7
+# --epoch 1 --avg 1 --use-averaged-model 1
 # --epoch 1 --avg 1 --use-averaged-model 0
 
+###### (epoch-14.pt - epoch-13.pt)
 # epoch14-avg1  test-clean test-other
 # ctc-decoding  15.44      32.56
 # 1best         10.8       25.22
 
+###### (epoch-14.pt)
+# epoch14-avg1-use-averaged-model0  test-clean test-other
+# ctc-decoding  22.37      41.54
+# 1best         14.94      32.6
+
+###### (epoch-20.pt - epoch-13.pt)
 # epoch20-avg7  test-clean test-other
 # ctc-decoding  13.29      29.01
 # 1best         9.95       23.26
@@ -178,3 +187,25 @@ echo "Done: `date`"
 #   --exp-dir $exp_dir \
 #   --max-duration 1200 --num-workers 3 
 
+
+
+exp_dir=zipformer_test/exp-test
+
+echo
+echo "exp_dir:" $exp_dir
+echo
+
+python zipformer_test/train.py \
+  --world-size 4 \
+  --num-epochs 40 \
+  --start-epoch 1 \
+  --use-fp16 true \
+  --master-port 12535 \
+  --causal false \
+  --full-libri false \
+  --use-transducer false \
+  --use-ctc true \
+  --ctc-loss-scale 1.0 \
+  --exp-dir $exp_dir \
+  --max-duration 400 --num-workers 3 \
+  --start-epoch 15 --ctc-beam-size 4
