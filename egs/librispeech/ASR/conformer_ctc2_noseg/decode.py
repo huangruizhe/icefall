@@ -247,6 +247,13 @@ def get_parser():
         """,
     )
 
+    parser.add_argument(
+        "--bpe-model",
+        type=str,
+        default="data/lang_bpe_500/bpe.model",
+        help="Path to the BPE model",
+    )
+
     return parser
 
 
@@ -267,6 +274,9 @@ def get_params() -> AttributeDict:
             "max_active_states": 10000,
             "use_double_scores": True,
             "env_info": get_env_info(),
+            # new parameters
+            "blank_id": 0,
+            "vocab_size": 500,
         }
     )
     return params

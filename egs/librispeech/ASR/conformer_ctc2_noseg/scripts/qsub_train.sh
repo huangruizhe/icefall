@@ -123,16 +123,16 @@ if false; then
     # nbest-oracle      6.98/16.87
 
     ###### --use-averaged-model true --epoch 14 --avg 1 ######
-    # ctc-greedy-search 
-    # ctc-decoding      
-    # 1best             
-    # nbest-oracle      
+    # ctc-greedy-search 15.24/31.92
+    # ctc-decoding      15.24/31.92
+    # 1best             10.5/23.74
+    # nbest-oracle      6.42/16.5
 
     ###### --use-averaged-model false --epoch 14 --avg 1 ######
-    # ctc-greedy-search 
-    # ctc-decoding      
-    # 1best             
-    # nbest-oracle      
+    # ctc-greedy-search 18.95/37.63
+    # ctc-decoding      18.95/37.63
+    # 1best             12.55/28.0
+    # nbest-oracle      7.84/20.1
 
     ###### --use-averaged-model false --epoch 888 --avg 1 (best-valid-loss.ppt) ######
     # ctc-greedy-search 23.82/43.37
