@@ -141,6 +141,26 @@ if false; then
     # nbest-oracle      9.12/23.09
 fi
 
+##################################################
+# Train with train_concat_libri
+##################################################
+
+if false; then
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_concat_libri
+    ln -s /exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed/epoch-14.pt $exp_dir/.
+    ./conformer_ctc2_noseg/train_concat_libri.py \
+      --exp-dir $exp_dir \
+      --lang-dir data/lang_bpe_500 \
+      --full-libri 0 \
+      --max-duration 200 \
+      --concatenate-cuts 0 \
+      --world-size 1 \
+      --bucketing-sampler 1 \
+      --start-epoch 15 \
+      --num-epochs 30 \
+      --att-rate 0
+  fi
+
 
 ####################################
 # tensorboard
