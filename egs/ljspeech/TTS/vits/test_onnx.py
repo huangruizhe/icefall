@@ -28,10 +28,10 @@ Use the onnx model to generate a wav:
 
 import argparse
 import logging
+
 import onnxruntime as ort
 import torch
 import torchaudio
-
 from tokenizer import Tokenizer
 
 
@@ -92,8 +92,8 @@ class OnnxModel:
                 self.model.get_inputs()[0].name: tokens.numpy(),
                 self.model.get_inputs()[1].name: tokens_lens.numpy(),
                 self.model.get_inputs()[2].name: noise_scale.numpy(),
-                self.model.get_inputs()[3].name: noise_scale_dur.numpy(),
-                self.model.get_inputs()[4].name: alpha.numpy(),
+                self.model.get_inputs()[3].name: alpha.numpy(),
+                self.model.get_inputs()[4].name: noise_scale_dur.numpy(),
             },
         )[0]
         return torch.from_numpy(out)
