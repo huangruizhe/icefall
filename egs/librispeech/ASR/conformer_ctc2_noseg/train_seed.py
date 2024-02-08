@@ -823,7 +823,7 @@ def run(rank, world_size, args):
         num_decoder_layers=params.num_decoder_layers,
     )
 
-    print(model)
+    # print(model)
 
     num_param = sum([p.numel() for p in model.parameters()])
     logging.info(f"Number of model parameters: {num_param}")
@@ -895,6 +895,21 @@ def run(rank, world_size, args):
 
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
     train_cuts = train_cuts.filter(remove_invalid_utt_ctc)
+
+    # Get a seed model on small data
+    import lhotse
+    train_cuts = lhotse.load_manifest_lazy("data/fbank/librispeech_cuts_train-clean-100-35h.jsonl.gz")
+    train_cuts = train_cuts.to_eager()
+    if rank == 0:
+        train_cuts.describe()
+    logging.info("Multiply train_cut ...")
+    train_cuts = train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts
+    import random
+    import string
+    custom_characters = string.ascii_letters + string.digits
+    train_cuts = train_cuts.modify_ids(lambda cut_id: f"{cut_id}_{''.join(random.choices(custom_characters, k=5))}")
+    if rank == 0:
+        train_cuts.describe()
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint

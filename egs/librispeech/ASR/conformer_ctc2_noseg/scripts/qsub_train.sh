@@ -67,12 +67,16 @@ echo
 #    echo "False"
 # fi
 
+##################################################
+# Standard training recipe
+##################################################
 if true; then
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_ctc
     ./conformer_ctc2_noseg/train.py \
       --exp-dir $exp_dir \
       --lang-dir data/lang_bpe_500 \
       --full-libri 1 \
-      --max-duration 400 \
+      --max-duration 600 \
       --concatenate-cuts 0 \
       --world-size 4 \
       --bucketing-sampler 1 \
@@ -81,6 +85,61 @@ if true; then
       --att-rate 0
 fi
 
+##################################################
+# Get a seed model first on a small subset
+##################################################
+# python -c """
+# import lhotse
+# cs = lhotse.load_manifest('data/fbank/librispeech_cuts_train-clean-100.jsonl.gz')
+# cs = cs.to_eager()
+# cs = cs.sample(n_cuts=10000)
+# cs.describe()
+# cs.to_file('data/fbank/librispeech_cuts_train-clean-100-35h.jsonl.gz')
+# """
+if false; then
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed
+    ./conformer_ctc2_noseg/train_seed.py \
+      --exp-dir $exp_dir \
+      --lang-dir data/lang_bpe_500 \
+      --full-libri 0 \
+      --max-duration 200 \
+      --concatenate-cuts 0 \
+      --world-size 4 \
+      --bucketing-sampler 1 \
+      --start-epoch 1 \
+      --num-epochs 30 \
+      --att-rate 0
+    
+    for method in ctc-greedy-search ctc-decoding 1best nbest-oracle; do
+      python3 ./conformer_ctc2_noseg/decode.py \
+      --exp-dir $exp_dir \
+      --use-averaged-model True --epoch 30 --avg 8 --max-duration 400 --method $method
+    done
+
+    ###### --epoch 30 --avg 8 ######
+    # ctc-greedy-search 14.79/30.62
+    # ctc-decoding      14.79/30.62
+    # 1best             10.8/23.63
+    # nbest-oracle      6.98/16.87
+
+    ###### --use-averaged-model true --epoch 14 --avg 1 ######
+    # ctc-greedy-search 
+    # ctc-decoding      
+    # 1best             
+    # nbest-oracle      
+
+    ###### --use-averaged-model false --epoch 14 --avg 1 ######
+    # ctc-greedy-search 
+    # ctc-decoding      
+    # 1best             
+    # nbest-oracle      
+
+    ###### --use-averaged-model false --epoch 888 --avg 1 (best-valid-loss.ppt) ######
+    # ctc-greedy-search 23.82/43.37
+    # ctc-decoding      23.82/43.37
+    # 1best             15.16/32.63
+    # nbest-oracle      9.12/23.09
+fi
 
 
 ####################################
@@ -95,6 +154,6 @@ fi
 
 # https://stackoverflow.com/questions/37987839/how-can-i-run-tensorboard-on-a-remote-server
 # ssh -L 16006:127.0.0.1:6006 rhuang@test1.hltcoe.jhu.edu
-# tensorboard --logdir $exp_dir/tensorboard --port 6006
+# tensorboard --logdir $exp_dir/tensorboard --port 6006 --window_title $exp_dir
 # http://localhost:16006 
 
