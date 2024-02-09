@@ -548,9 +548,10 @@ def compute_loss(
         y_long = None
     
     # Eval training wer for this batch here
-    if False and is_training:
+    if True and is_training:
         # wer_decoding_graph = k2.arc_sort(k2.create_fsa_vec(y_long)).to(ctc_output.device)
-        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long)
+        # batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long)
+        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=get_decoding_graphs(texts, sp))
         logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
 
     encoder_out_lens = torch.div(
@@ -927,6 +928,9 @@ def run(rank, world_size, args):
 
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
     train_cuts = train_cuts.filter(remove_invalid_utt_ctc)
+
+    # train_cuts = train_cuts.to_eager()
+    # train_cuts = train_cuts.sample(n_cuts=1000)
 
     # get long text for each recording
     libri_long_text_str, libri_long_text_fst = get_long_text(train_cuts, sp=sp, make_fst=True)

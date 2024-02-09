@@ -18,6 +18,9 @@ import torch
 import torch.multiprocessing as mp
 import torch.nn as nn
 
+import pywrapfst as openfst
+
+
 def get_uid_key(my_id):
     # /data/skhudan1/corpora/librispeech/CHAPTERS.TXT
     speaker_id, chapter_id, utterance_id, _ = my_id.split("-")
@@ -30,8 +33,8 @@ def convert_long_text_to_fst(items, sp, pid, results):
     for k, text in tqdm(items, mininterval=2, desc=f"libri_long_text [{pid}]"):
         # libri_long_text_sp[k] = make_factor_transducer1(sp.encode(text, out_type=int), return_str=True, blank_penalty=0)
         # libri_long_text_sp[k] = make_factor_transducer2(sp.encode(text, out_type=int), return_str=True, blank_penalty=-12)
-        # libri_long_text_sp[k] = make_factor_transducer3(sp.encode(text, out_type=int), word_start_symbols=[i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')], return_str=True, blank_penalty=0)
-        libri_long_text_sp[k] = make_factor_transducer4(sp.encode(text, out_type=int), word_start_symbols=[i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')], return_str=True, blank_penalty=0)
+        # libri_long_text_sp[k] = make_factor_transducer3(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
+        libri_long_text_sp[k] = make_factor_transducer4(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
     results[pid] = libri_long_text_sp
 
 
@@ -221,6 +224,10 @@ class MyCounter:
         self.counter2_ += 1; 
         if self.counter2_ % 2 == 1: self.counter2 += 1; 
         return self.counter2
+    def c1(self): return self.counter1
+    def c2(self): return self.counter2
+    def reset(): 
+        self.counter1 = 0; self.counter2 = 1; self.counter2_ = 0
 
 
 def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
@@ -266,7 +273,122 @@ def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, 
         fst = k2.Fsa.from_str(new_arcs, acceptor=False)
         return fst
 
-def get_decoding_graphs(_texts):        
+
+def get_decoding_graphs(_texts, sp):
     fst_graph = k2.ctc_graph(sp.encode(_texts, out_type=int), modified=False, device='cpu')
     return [fst_graph[i] for i in range(fst_graph.shape[0])]
 
+
+def _make_factor_transducer5(fst_graphs_3, word_start_symbols, two_ends_bonus=1.0):
+    # This is similar to make_factor_transducer3
+    # We concat three graphs, and then add some bonus to the two ends of the graph to encourage alignment to the two ends
+    # We will probably also do non-linear scaling
+
+    # Compared to make_factor_transducer3, we remove some arcs from the graph
+    # Also, we modify some arcs to add bonus to the two ends of the graph to encourage alignment to the two ends
+
+    ############ Graph 1 ############
+    fst_graph1 = fst_graphs_3[0]
+    
+    c_str = k2.to_str_simple(fst_graph1)
+    arcs = c_str.strip().split("\n")
+    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
+    final_state = int(arcs[-1])
+
+    arcs = arcs[:-1]
+    arcs = [tuple(map(int, a.split())) for a in arcs]
+    # ss, ee, l1, l2, w = arc
+
+    non_eps_nodes = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
+    arcs += [(0, n, l, l, 0) for n, l in non_eps_nodes if n > 1]
+
+    # boost the weights
+    arcs = [(ss, ee, l1, l2, w + two_ends_bonus) if (ss>0 and l1>0) else (ss, ee, l1, l2, w + two_ends_bonus * 5) if (ee>0 and l1>0) else (ss, ee, l1, l2, w) for ss, ee, l1, l2, w in arcs]
+
+    arcs += [(0, final_state, -1, -1, 0)]
+
+    new_arcs = arcs
+    new_arcs.append([final_state])
+
+    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
+    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
+    new_arcs = [" ".join(arc) for arc in new_arcs]
+    new_arcs = "\n".join(new_arcs)
+
+    fst_graph1 = k2.Fsa.from_str(new_arcs, acceptor=False)
+
+    ############ Graph 2 ############
+    fst_graph2 = fst_graphs_3[1]
+
+    ############ Graph 3 ############
+    fst_graph3 = fst_graphs_3[2]
+
+    c_str = k2.to_str_simple(fst_graph3)
+    arcs = c_str.strip().split("\n")
+    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
+    final_state = int(arcs[-1])
+
+    arcs = arcs[:-1]
+    arcs = [tuple(map(int, a.split())) for a in arcs]
+    # ss, ee, l1, l2, w = arc
+
+    non_eps_nodes2 = set((arc[0], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start out-going arc
+    non_eps_nodes2 = [(n, l) for n, l in non_eps_nodes2 if 0 < n < final_state - 2]
+    arcs += [(n, final_state, -1, -1, 0) for n, l in non_eps_nodes2]
+
+    # boost the weights
+    arcs = [(ss, ee, l1, l2, w + two_ends_bonus) if (ee!=final_state and l1>0) else (ss, ee, l1, l2, w + two_ends_bonus*5) if l1>0 else (ss, ee, l1, l2, w) for ss, ee, l1, l2, w in arcs]
+
+    arcs += [(0, final_state, -1, -1, 0)]
+
+    new_arcs = arcs
+    new_arcs.append([final_state])
+
+    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
+    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
+    new_arcs = [" ".join(arc) for arc in new_arcs]
+    new_arcs = "\n".join(new_arcs)
+
+    fst_graph3 = k2.Fsa.from_str(new_arcs, acceptor=False)
+
+    # concatenate the three graphs: don't be fooled by `k2.cat`
+    compiler = openfst.Compiler()
+    compiler.write(k2.to_str_simple(fst_graph1, openfst=True))
+    f1 = compiler.compile()
+    compiler.write(k2.to_str_simple(fst_graph2, openfst=True))
+    f2 = compiler.compile()
+    compiler.write(k2.to_str_simple(fst_graph3, openfst=True))
+    f3 = compiler.compile()
+    f1.concat(f2)
+    f1.concat(f3)
+    fst = k2.Fsa.from_openfst(str(f1), acceptor=False)
+    fst = k2.arc_sort(fst)
+    return fst
+
+
+def make_factor_transducer5(libri_long_text_str, cut_ids, text_ranges, sp, extension=10, two_ends_bonus=1.0):
+    # This factor transducer enforce some specific factors to be present in the graph
+
+    text_ranges = [(max(rg[0]-1, 0), rg[1]-1) for cid, rg in zip(cut_ids, text_ranges)]
+    text_ranges = [
+        (
+            (max(rg[0]-extension, 0), rg[0]),  # left extension
+            (rg[0], rg[1]),                    # alignment results
+            (rg[1], rg[1]+extension)           # right extension
+        ) for cid, rg in zip(cut_ids, text_ranges)
+    ]
+    text_keys = [tuple(get_uid_key(cid)[:2]) for cid in cut_ids]
+    texts = [" ".join(libri_long_text_str[tk][rg[0]: rg[1]]) for tk, rg3 in zip(text_keys, text_ranges) for rg in rg3]
+    token_ids = sp.encode(texts, out_type=int)
+    fst_graphs = k2.ctc_graph(token_ids, modified=False, device='cpu')
+
+    # token_lens = [(len(left), len(mid), len(right)) for left, mid, right in zip(token_ids[::3], token_ids[1::3], token_ids[2::3])]
+    # word_id_lists = [left + mid + right for left, mid, right in zip(token_ids[::3], token_ids[1::3], token_ids[2::3])]
+
+    breakpoint()
+
+    fst_graphs = [(fst_graphs[i], fst_graphs[i+1], fst_graphs[i+2]) for i in range(0, fst_graphs.shape[0], 3)]
+    word_start_symbols = {i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}
+    fst_graphs = [_make_factor_transducer5(fst_graphs_3, word_start_symbols, two_ends_bonus=two_ends_bonus) for fst_graphs_3 in fst_graphs]
+    
+    return fst_graphs
