@@ -12,6 +12,8 @@ from icefall.utils import get_alignments, get_texts, get_texts_with_timestamp
 
 import kaldialign
 
+from factor_transducer import *
+
 
 def compute_wer(results):
     subs = defaultdict(int)
@@ -151,11 +153,13 @@ def get_lattice(params, ctc_output, batch, sp, decoding_graph=None):
         nnet_output=ctc_output,
         decoding_graph=decoding_graph,
         supervision_segments=supervision_segments,
-        search_beam=15,
-        output_beam=6,
+        # search_beam=15,
+        # output_beam=6,
+        search_beam=20,
+        output_beam=5,
         min_active_states=30,
         max_active_states=10000,
-        subsampling_factor=4,
+        subsampling_factor=params.subsampling_factor,
     )
     
     return lattice, indices
@@ -174,24 +178,116 @@ def get_best_path(params, ctc_output, batch, sp, decoding_graph=None):
     
     return best_paths
 
-def get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None):
-    ctc_output = ctc_output.detach()
-    best_paths = get_best_path(params, ctc_output, batch, sp, decoding_graph)
-
-    breakpoint()
-
-    token_ids = get_texts(best_paths)
-    hyps_lens = [len(t) for t in token_ids]
-    # hyps = [" ".join([word_table[i] for i in ids]) for ids in token_ids]
-    hyps = sp.decode(token_ids)
+def get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=None, hyps=None):
+    if best_paths is None and hyps is None:
+        ctc_output = ctc_output.detach()
+        best_paths = get_best_path(params, ctc_output, batch, sp, decoding_graph)
 
     texts = batch["supervisions"]["text"]
     cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
+
+    if hyps is None:
+        token_ids = get_texts(best_paths)
+        hyps_lens = [len(t) for t in token_ids]
+        # hyps = [" ".join([word_table[i] for i in ids]) for ids in token_ids]
+        hyps = sp.decode(token_ids)
+        hyp_ref_lens = [(len(hyp_token_ids), len(sp.encode(ref_text, out_type=int))) for hyp_token_ids, ref_text in zip(token_ids, texts)]
+    else:
+        hyps_lens = None
+        hyp_ref_lens = None
+
     results = [(cut_id, ref_text.split(), hyp_text.split()) for cut_id, hyp_text, ref_text in zip(cut_ids, hyps, texts)]
-    hyp_ref_lens = [(len(hyp_token_ids), len(sp.encode(ref_text, out_type=int))) for hyp_token_ids, ref_text in zip(token_ids, texts)]
 
     wer = compute_wer(results)
     wer["hyps_lens"] = hyps_lens
     wer["hyp_ref_lens"] = hyp_ref_lens
+    wer["alignment_results"] = results
 
     return wer
+
+
+def compute_sub_factor_transducer_loss(params, ctc_output, lattice, best_paths, indices, batch, sp):
+    lattice = lattice.detach().to('cpu')
+    best_paths = best_paths.detach().to('cpu')
+
+    _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
+    best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
+    best_paths = k2.create_fsa_vec(best_paths)
+
+    # TODO: we can get aligment time stamps here
+    # decoding_results = get_texts_with_timestamp(best_path)
+    # decoding_results.timestamps
+    _token_ids = get_texts(best_paths)
+
+    if "libri_long_text_str" in params.my_args and params.my_args["libri_long_text_str"] is not None:
+        # That means _token_ids are actually indices
+        libri_long_text_str = params.my_args["libri_long_text_str"]
+        cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
+        _texts = [libri_long_text_str[tuple(get_uid_key(cid)[:2])][max(rg[0]-1, 0): rg[1]-1] for cid, rg in zip(cut_ids, _token_ids)]
+        _texts = [" ".join(t) for t in _texts]
+        token_ids = sp.encode(_texts, out_type=int)
+    
+    # breakpoint()
+    # !import code; code.interact(local=vars())
+    
+    # wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=best_paths)
+    batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=None, hyps=_texts)
+    logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
+
+    new_decoding_graph = k2.ctc_graph(token_ids, modified=False, device=ctc_output.device)
+    new_decoding_graph = k2.arc_sort(new_decoding_graph)
+    new_decoding_graph = [new_decoding_graph[i] for i in range(new_decoding_graph.shape[0])]
+
+    new_lattice, new_indices = get_lattice(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
+    new_best_paths = one_best_decoding(
+        lattice=new_lattice,
+        use_double_scores=True,
+    )
+    return new_lattice, new_indices, new_best_paths
+
+
+
+def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
+    lattice, indices = get_lattice(params, ctc_output, batch, sp, decoding_graph)
+
+    best_paths = one_best_decoding(
+        lattice=lattice,
+        use_double_scores=True,
+    )
+
+    lattice, indices, best_paths = compute_sub_factor_transducer_loss(params, ctc_output, lattice, best_paths, indices, batch, sp)
+
+    # scoring_fst = lattice
+    scoring_fst = best_paths
+
+    tot_scores = scoring_fst.get_tot_scores(
+        log_semiring=True, use_double_scores=True,
+    )
+    loss = -1 * tot_scores
+    loss = loss.to(torch.float32)
+
+    mask_tt = []
+    inf_indices = torch.where(torch.isinf(loss))[0].cpu()
+    if any(mask_tt):
+        mask_tt_indices = torch.nonzero(torch.tensor(mask_tt)).squeeze()
+        inf_indices = torch.cat((inf_indices, mask_tt_indices))
+    if inf_indices.size(0) > 0:
+        logging.warning(f"Found {inf_indices.size(0)} inf/nan/ignored values in loss for batch_idx_train={params.batch_idx_train}")
+    
+        ctc_loss = 0
+        ignore_idx = set(inf_indices.tolist())
+        for i in range(len(loss)):
+            if i not in ignore_idx:
+                ctc_loss = ctc_loss + loss[i]
+        
+        # mask = torch.ones_like(loss)
+        # mask[inf_indices] = 0
+        # loss = loss * mask
+        # loss[inf_indices].detach()
+        _indices = {i_new : i_old for i_new, i_old in enumerate(indices.tolist())}
+        inf_indices_old = [_indices[i] for i in ignore_idx]  # This are the indices of the inf/ignored utterances in the original batch
+    else:
+        ctc_loss = loss.sum()
+        inf_indices_old = []
+    
+    return ctc_loss, inf_indices_old

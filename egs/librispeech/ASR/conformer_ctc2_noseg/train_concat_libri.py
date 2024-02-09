@@ -547,17 +547,11 @@ def compute_loss(
     else:
         y_long = None
     
-    if True and is_training:
+    # Eval training wer for this batch here
+    if False and is_training:
         # wer_decoding_graph = k2.arc_sort(k2.create_fsa_vec(y_long)).to(ctc_output.device)
-        batch_wer = get_batch_wer(
-            params, 
-            ctc_output, 
-            batch,
-            sp,
-            decoding_graph=y_long,
-        )
+        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long)
         logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
-        breakpoint()
 
     encoder_out_lens = torch.div(
         supervisions["num_frames"],
@@ -574,9 +568,12 @@ def compute_loss(
     )
 
     if params.my_args is not None and params.my_args["long_ctc"]:
-        pass
-
-    loss = ctc_loss
+        ctc_loss_long, inf_indices = compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=y_long)
+        feature_lens[inf_indices] = 0
+        loss = ctc_loss_long
+    else:
+        ctc_loss_long = torch.empty(0)
+        loss = ctc_loss
 
     assert loss.requires_grad == is_training
 
