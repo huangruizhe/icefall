@@ -83,6 +83,18 @@ if true; then
       --start-epoch 1 \
       --num-epochs 30 \
       --att-rate 0
+    
+    for method in ctc-greedy-search ctc-decoding 1best nbest-oracle; do
+      python3 ./conformer_ctc2_noseg/decode.py \
+      --exp-dir $exp_dir \
+      --use-averaged-model True --epoch 30 --avg 8 --max-duration 400 --method $method
+    done
+
+    ###### --epoch 30 --avg 8 ######
+    # ctc-greedy-search 3.29/8.15
+    # ctc-decoding      3.29/8.15
+    # 1best             3.1/7.13
+    # nbest-oracle      1.48/3.66
 fi
 
 ##################################################

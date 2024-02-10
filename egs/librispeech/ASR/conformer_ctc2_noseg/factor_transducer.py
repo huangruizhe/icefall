@@ -215,8 +215,11 @@ def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, 
         return fst
 
 
-class MyCounter: 
-    def __init__(self): self.counter1 = 0; self.counter2 = 1; self.counter2_ = 0
+class WordCounter: 
+    def __init__(self): 
+        self.counter1 = 0 
+        self.counter2 = 1; self.counter2_ = 0
+        self.counter3 = 0
     # def __call__(self): self.counter += 1; return self.counter
     def f1(self): 
         self.counter1 += 1; return self.counter1
@@ -224,13 +227,20 @@ class MyCounter:
         self.counter2_ += 1; 
         if self.counter2_ % 2 == 1: self.counter2 += 1; 
         return self.counter2
+    def f3(self): 
+        self.counter3 += 1; return self.counter3
     def c1(self): return self.counter1
     def c2(self): return self.counter2
+    def c3(self): return self.counter3
     def reset(): 
-        self.counter1 = 0; self.counter2 = 1; self.counter2_ = 0
+        self.counter1 = 0
+        self.counter2 = 1; self.counter2_ = 0
+        self.counter3 = 0
 
 
 def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
+    # This is a modification of make_factor_transducer3, but we only output word indices instead of word symbols
+
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
     c_str = k2.to_str_simple(fst_graph)
@@ -242,7 +252,7 @@ def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, 
     arcs = [tuple(map(int, a.split())) for a in arcs]
     # ss, ee, l1, l2, w = arc
 
-    counter = MyCounter()
+    counter = WordCounter()
 
     non_eps_nodes1 = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
     non_eps_nodes1 = sorted(non_eps_nodes1, key=lambda x: x[0])
@@ -257,6 +267,75 @@ def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, 
     
     # non_eps_nodes2 = [(n, l) for n, l in non_eps_nodes2 if 0 < n < final_state - 2]
     
+    new_arcs = arcs
+    new_arcs.append([final_state + 1])
+
+    new_arcs = sorted(new_arcs, key=lambda arc: arc[0])
+    new_arcs = [[str(i) for i in arc] for arc in new_arcs]
+    new_arcs = [" ".join(arc) for arc in new_arcs]
+    new_arcs = "\n".join(new_arcs)
+
+    # print(new_arcs)
+
+    if return_str:
+        return new_arcs
+    else:
+        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
+        return fst
+
+
+def make_factor_transducer4_bigram(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
+    # This is a modification of make_factor_transducer4, but we just use a bigram graph instead of a factor transducer
+
+    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
+
+
+def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
+    # This is a modification of make_factor_transducer4, but we allow skip arcs instead of a factor transducer
+
+    fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
+
+    c_str = k2.to_str_simple(fst_graph)
+    arcs = c_str.strip().split("\n")
+    arcs = [x.strip() for x in arcs if len(x.strip()) > 0]
+    final_state = int(arcs[-1])
+
+    arcs = arcs[:-1]
+    arcs = [tuple(map(int, a.split())) for a in arcs]
+    # ss, ee, l1, l2, w = arc
+
+    counter = WordCounter()
+    counter.f3()
+
+    non_eps_nodes1 = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
+    non_eps_nodes1 = sorted(non_eps_nodes1, key=lambda x: x[0])
+    non_eps_nodes2 = list((arc[0], arc[1]) for arc in arcs if arc[3] < 0 or (arc[3] > 0 and arc[3] in word_start_symbols and arc[0] > 0))   # if this node has a non-eps, word-start out-going arc
+    self_loops = {ss: l1 for ss, ee, l1, l2, w in arcs if ss == ee}
+
+    # eps_arcs1 = [(ss, ee) for ss, ee, l1, l2, w in arcs if ss != ee and l1 == 0]
+    # token_starts = [ss for ss, ee, l1, l2, w in arcs if ss == ee and l1 > 0]
+    eps_self_loops = [ss for ss, l1 in self_loops.items() if l1 == 0]
+    eps_self_loops = eps_self_loops[1:-1]
+
+    arcs = [arcs[0]] + arcs[2:-5] + [a for a in arcs[-5:] if a[2] >= 0]
+    arcs = [[ss, ee, l1, 0, w] for ss, ee, l1, l2, w in arcs]
+
+    # in-coming arcs
+    arcs += [(0, n, l, counter.f1(), 0) for n, l in non_eps_nodes1]
+
+    # out-going arcs
+    arcs += [(n, final_state, self_loops[n], counter.f3(), 0) for n, l in non_eps_nodes2 if self_loops[n] > 0]
+    arcs += [(final_state - 1, final_state, self_loops[final_state - 1], counter.counter3, 0)]
+
+    # skip arcs
+    # arcs += [(n, next_token, self_loops[next_token], 0, 0) for ns, next_token in zip(eps_arcs1, token_starts[2:]) for n in ns]
+    arcs += [(n1, n2, 0, 0, 0) for n1, n2 in zip(eps_self_loops, eps_self_loops[1:])]
+
+    arcs += [(final_state, final_state, 0, 0, 0)]
+    arcs += [(final_state, final_state + 1, -1, -1, 0)]
+
+    # non_eps_nodes2 = [(n, l) for n, l in non_eps_nodes2 if 0 < n < final_state - 2]
+
     new_arcs = arcs
     new_arcs.append([final_state + 1])
 
