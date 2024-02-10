@@ -37,9 +37,10 @@ def convert_long_text_to_fst(items, sp, pid, results):
         # libri_long_text_sp[k] = make_factor_transducer4(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
         libri_long_text_sp[k] = make_factor_transducer4_skip(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
     results[pid] = libri_long_text_sp
+    return libri_long_text_sp
 
 
-def get_long_text(cuts, sp=None, make_fst=False):
+def get_long_text(cuts, sp=None, make_fst=False, nj=6):
     logging.info(f"Getting long text from cuts ... ")  # len(cuts) = {len(cuts)}
     cuts_by_recoding = defaultdict(list)
     for i, c in enumerate(cuts):  # tqdm(cuts, miniters=1000, total=None):
@@ -66,28 +67,32 @@ def get_long_text(cuts, sp=None, make_fst=False):
         for k, text in libri_long_text.items():
             libri_long_text_sp[k] = sp.encode(text, out_type=int)
     else:
-        processes = []
-        manager = mp.Manager()
-        # Fork processes
-        n_process = 6
-        items = list(libri_long_text.items())
-        chunk_size = int(len(items) / n_process) + 1
-        i_chunk = 0
-        results = manager.list([0] * n_process)
-        for i in range(0, len(items), chunk_size):
-            chunk = items[i: i+chunk_size]
-            fork = mp.Process(target=convert_long_text_to_fst,
-                            args=(chunk, sp, i_chunk, results))
-            fork.start()
-            processes.append(fork)
-            i_chunk += 1
-        # Wait until all processes are finished
-        for fork in processes:
-            fork.join()
-        
-        libri_long_text_sp = dict()
-        for rs in results:
-            libri_long_text_sp.update(rs)
+        if len(libri_long_text) > 100: 
+            processes = []
+            manager = mp.Manager()
+            # Fork processes
+            n_process = nj
+            items = list(libri_long_text.items())
+            chunk_size = int(len(items) / n_process) + 1
+            i_chunk = 0
+            results = manager.list([0] * n_process)
+            for i in range(0, len(items), chunk_size):
+                chunk = items[i: i+chunk_size]
+                fork = mp.Process(target=convert_long_text_to_fst,
+                                args=(chunk, sp, i_chunk, results))
+                fork.start()
+                processes.append(fork)
+                i_chunk += 1
+            # Wait until all processes are finished
+            for fork in processes:
+                fork.join()
+            
+            libri_long_text_sp = dict()
+            for rs in results:
+                libri_long_text_sp.update(rs)
+        else:
+            libri_long_text_sp = convert_long_text_to_fst(libri_long_text.items(), sp, 0, [None])
+
         for k, v in tqdm(libri_long_text_sp.items()):
             libri_long_text_sp[k] = k2.Fsa.from_str(v, acceptor=False)
     

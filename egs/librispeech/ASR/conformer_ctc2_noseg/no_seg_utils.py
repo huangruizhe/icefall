@@ -285,12 +285,14 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
         use_double_scores=True,
     )
 
+    breakpoint()
+
     # This only works with `make_factor_transducer4`:
     lattice, indices, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, indices, batch, sp)
     # lattice, indices, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, indices, batch, sp)
 
     # breakpoint()
-    # best_paths[0], best_paths[0].num_arcs
+    # best_paths[0].shape, best_paths[0].num_arcs
 
     # scoring_fst = lattice
     scoring_fst = best_paths
