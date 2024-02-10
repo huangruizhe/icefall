@@ -290,16 +290,18 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
     lattice, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp)
     # lattice, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, batch, sp)
 
+    # Note: interesting:
+    # (1) Needs to use `make_factor_transducer4_skip`
+    # (2) Needs to use `compute_sub_factor_transducer_loss1` or `compute_sub_factor_transducer_loss2`
+
     # breakpoint()
     # best_paths[0].shape, best_paths[0].num_arcs
 
     # scoring_fst = lattice
     scoring_fst = best_paths
 
-    tot_scores = scoring_fst.get_tot_scores(
-        log_semiring=True, use_double_scores=True,
-    )
-    loss = -1 * tot_scores
+    loss = scoring_fst.get_tot_scores(log_semiring=True, use_double_scores=True)
+    loss = -1 * loss
     loss = loss.to(torch.float32)
 
     mask_tt = []
