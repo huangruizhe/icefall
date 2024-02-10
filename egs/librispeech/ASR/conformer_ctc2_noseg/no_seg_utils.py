@@ -164,7 +164,8 @@ def get_lattice(params, ctc_output, batch, sp, decoding_graph=None):
     
     return lattice, indices
 
-def get_best_path(params, ctc_output, batch, sp, decoding_graph=None):
+
+def get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=None):
     lattice, indices = get_lattice(params, ctc_output, batch, sp, decoding_graph)
 
     best_paths = one_best_decoding(
@@ -175,13 +176,24 @@ def get_best_path(params, ctc_output, batch, sp, decoding_graph=None):
     _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
     best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
     best_paths = k2.create_fsa_vec(best_paths)
+
+    lattice = [lattice[_indices[i]] for i in range(len(_indices))]
+    lattice = k2.create_fsa_vec(lattice)
+    
+    # This `lattice` and `best_paths` are in the same order as the original batch
+    return lattice, best_paths
+
+
+def get_best_paths(params, ctc_output, batch, sp, decoding_graph=None):
+    lattice, best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=decoding_graph)
     
     return best_paths
+
 
 def get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=None, hyps=None):
     if best_paths is None and hyps is None:
         ctc_output = ctc_output.detach()
-        best_paths = get_best_path(params, ctc_output, batch, sp, decoding_graph)
+        best_paths = get_best_paths(params, ctc_output, batch, sp, decoding_graph)
 
     texts = batch["supervisions"]["text"]
     cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
@@ -206,15 +218,15 @@ def get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths
     return wer
 
 
-def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, indices, batch, sp):
+def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp):
     # use decoding results text as ground truth
 
     lattice = lattice.detach().to('cpu')
     best_paths = best_paths.detach().to('cpu')
 
-    _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
-    best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
-    best_paths = k2.create_fsa_vec(best_paths)
+    # _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
+    # best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
+    # best_paths = k2.create_fsa_vec(best_paths)
 
     # TODO: we can get aligment time stamps here
     # decoding_results = get_texts_with_timestamp(best_path)
@@ -241,23 +253,19 @@ def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths,
     new_decoding_graph = k2.arc_sort(new_decoding_graph)
     new_decoding_graph = [new_decoding_graph[i] for i in range(new_decoding_graph.shape[0])]
 
-    new_lattice, new_indices = get_lattice(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
-    new_best_paths = one_best_decoding(
-        lattice=new_lattice,
-        use_double_scores=True,
-    )
-    return new_lattice, new_indices, new_best_paths
+    new_lattice, new_best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
+    return new_lattice, new_best_paths
 
 
-def compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, indices, batch, sp):
+def compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, batch, sp):
     # use decoding results text to build extended decoding graph
 
     lattice = lattice.detach().to('cpu')
     best_paths = best_paths.detach().to('cpu')
 
-    _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
-    best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
-    best_paths = k2.create_fsa_vec(best_paths)
+    # _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
+    # best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
+    # best_paths = k2.create_fsa_vec(best_paths)
 
     # TODO: we can get aligment time stamps here
     # decoding_results = get_texts_with_timestamp(best_path)
@@ -269,27 +277,18 @@ def compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths,
 
     new_decoding_graph = make_factor_transducer5(libri_long_text_str, cut_ids, token_ids_indices, sp, extension=10, two_ends_bonus=1.0)
 
-    new_lattice, new_indices = get_lattice(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
-    new_best_paths = one_best_decoding(
-        lattice=new_lattice,
-        use_double_scores=True,
-    )
-    return new_lattice, new_indices, new_best_paths
+    new_lattice, new_best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
+    return new_lattice, new_best_paths
 
 
 def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
-    lattice, indices = get_lattice(params, ctc_output, batch, sp, decoding_graph)
+    lattice, best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph)
 
-    best_paths = one_best_decoding(
-        lattice=lattice,
-        use_double_scores=True,
-    )
-
-    breakpoint()
+    # breakpoint()
 
     # This only works with `make_factor_transducer4`:
-    lattice, indices, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, indices, batch, sp)
-    # lattice, indices, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, indices, batch, sp)
+    lattice, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp)
+    # lattice, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, batch, sp)
 
     # breakpoint()
     # best_paths[0].shape, best_paths[0].num_arcs
@@ -304,31 +303,37 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
     loss = loss.to(torch.float32)
 
     mask_tt = []
-    inf_indices = torch.where(torch.isinf(loss))[0].cpu()
+    inf_indices = torch.where(torch.isinf(loss))[0].cpu().tolist()
     if any(mask_tt):
         mask_tt_indices = torch.nonzero(torch.tensor(mask_tt)).squeeze()
-        inf_indices = torch.cat((inf_indices, mask_tt_indices))
-    if inf_indices.size(0) > 0:
-        ctc_loss = 0
-        ignore_idx = set(inf_indices.tolist())
-        for i in range(len(loss)):
-            if i not in ignore_idx:
-                ctc_loss = ctc_loss + loss[i]
+        inf_indices = inf_indices.extend(mask_tt_indices.tolist())
+
+    inf_indices = set(inf_indices)
+    if len(inf_indices) > 0:
+        # ctc_loss = 0
+        # ignore_idx = set(inf_indices.tolist())
+        # for i in range(len(loss)):
+        #     if i not in ignore_idx:
+        #         ctc_loss = ctc_loss + loss[i]
+
+        non_inf_indices = [i for i in range(len(loss)) if i not in inf_indices]
+        ctc_loss = torch.sum(loss[non_inf_indices])
         
         # mask = torch.ones_like(loss)
         # mask[inf_indices] = 0
         # loss = loss * mask
         # loss[inf_indices].detach()
-        _indices = {i_new : i_old for i_new, i_old in enumerate(indices.tolist())}
-        inf_indices_old = [_indices[i] for i in ignore_idx]  # This are the indices of the inf/ignored utterances in the original batch
+        # _indices = {i_new : i_old for i_new, i_old in enumerate(indices.tolist())}
+        # inf_indices_old = [_indices[i] for i in ignore_idx]  # This are the indices of the inf/ignored utterances in the original batch
         
-        cut_ids = [batch["supervisions"]["cut"][i].id for i in inf_indices_old]
-        logging.warning(f"Found {inf_indices.size(0)} inf/nan/ignored values in loss for batch_idx_train={params.batch_idx_train}: {cut_ids}")
+        inf_indices = list(inf_indices)
+        cut_ids = [batch["supervisions"]["cut"][i].id for i in inf_indices]
+        logging.warning(f"Found {len(inf_indices)} inf/nan/ignored values in loss for batch_idx_train={params.batch_idx_train}: {cut_ids}")
     else:
         ctc_loss = loss.sum()
-        inf_indices_old = []
+        inf_indices = []
     
-    return ctc_loss, inf_indices_old
+    return ctc_loss, inf_indices
 
 
 def get_next_anchor_point(params, ctc_output, batch, sp, decoding_graph=None):
