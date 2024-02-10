@@ -549,9 +549,9 @@ def compute_loss(
     
     # Eval training wer for this batch here
     if True and is_training:
-        # wer_decoding_graph = k2.arc_sort(k2.create_fsa_vec(y_long)).to(ctc_output.device)
+        # # wer_decoding_graph = k2.arc_sort(k2.create_fsa_vec(y_long)).to(ctc_output.device)
         # batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long)
-        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=get_decoding_graphs(texts, sp))
+        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=get_decoding_graphs_factor_transducer(y.tolist()))
         logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
 
     encoder_out_lens = torch.div(
@@ -569,6 +569,7 @@ def compute_loss(
     )
 
     if params.my_args is not None and params.my_args["long_ctc"]:
+        # get_next_anchor_point(params, ctc_output, batch, sp, decoding_graph=y_long)
         ctc_loss_long, inf_indices = compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=y_long)
         feature_lens[inf_indices] = 0
         loss = ctc_loss_long

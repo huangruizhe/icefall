@@ -226,7 +226,7 @@ def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths,
     # That means _token_ids are actually indices
     libri_long_text_str = params.my_args["libri_long_text_str"]
     cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
-    _texts = [libri_long_text_str[tuple(get_uid_key(cid)[:2])][max(rg[0]-1, 0): rg[1]-1] for cid, rg in zip(cut_ids, _token_ids)]
+    _texts = [libri_long_text_str[tuple(get_uid_key(cid)[:2])][max(rg[0]-1, 0): rg[-1]-1] for cid, rg in zip(cut_ids, _token_ids)]
     _texts = [" ".join(t) for t in _texts]
     token_ids = sp.encode(_texts, out_type=int)
 
@@ -262,12 +262,12 @@ def compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths,
     # TODO: we can get aligment time stamps here
     # decoding_results = get_texts_with_timestamp(best_path)
     # decoding_results.timestamps
-    _token_ids = get_texts(best_paths)
+    token_ids_indices = get_texts(best_paths)
 
     libri_long_text_str = params.my_args["libri_long_text_str"]
     cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
 
-    new_decoding_graph = make_factor_transducer5(libri_long_text_str, cut_ids, _token_ids, sp, extension=10, two_ends_bonus=1.0)
+    new_decoding_graph = make_factor_transducer5(libri_long_text_str, cut_ids, token_ids_indices, sp, extension=10, two_ends_bonus=1.0)
 
     new_lattice, new_indices = get_lattice(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
     new_best_paths = one_best_decoding(
@@ -286,8 +286,8 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
     )
 
     # This only works with `make_factor_transducer4`:
-    # lattice, indices, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, indices, batch, sp)
-    lattice, indices, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, indices, batch, sp)
+    lattice, indices, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, indices, batch, sp)
+    # lattice, indices, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, indices, batch, sp)
 
     # breakpoint()
     # best_paths[0], best_paths[0].num_arcs
@@ -320,10 +320,41 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
         _indices = {i_new : i_old for i_new, i_old in enumerate(indices.tolist())}
         inf_indices_old = [_indices[i] for i in ignore_idx]  # This are the indices of the inf/ignored utterances in the original batch
         
-        cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
+        cut_ids = [batch["supervisions"]["cut"][i].id for i in inf_indices_old]
         logging.warning(f"Found {inf_indices.size(0)} inf/nan/ignored values in loss for batch_idx_train={params.batch_idx_train}: {cut_ids}")
     else:
         ctc_loss = loss.sum()
         inf_indices_old = []
     
     return ctc_loss, inf_indices_old
+
+
+def get_next_anchor_point(params, ctc_output, batch, sp, decoding_graph=None):
+    lattice, indices = get_lattice(params, ctc_output, batch, sp, decoding_graph)
+
+    best_paths = one_best_decoding(
+        lattice=lattice,
+        use_double_scores=True,
+    )
+
+    lattice = lattice.detach()
+    best_paths = best_paths.detach()
+
+    _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
+    best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
+    best_paths = k2.create_fsa_vec(best_paths)
+
+    # TODO: we can get aligment time stamps here
+    decoding_results = get_texts_with_timestamp(best_paths)
+    timestamps = decoding_results.timestamps
+    token_id_indices = decoding_results.hyps
+
+    breakpoint()
+    pass
+
+
+
+
+    
+
+

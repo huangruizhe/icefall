@@ -34,7 +34,8 @@ def convert_long_text_to_fst(items, sp, pid, results):
         # libri_long_text_sp[k] = make_factor_transducer1(sp.encode(text, out_type=int), return_str=True, blank_penalty=0)
         # libri_long_text_sp[k] = make_factor_transducer2(sp.encode(text, out_type=int), return_str=True, blank_penalty=-12)
         # libri_long_text_sp[k] = make_factor_transducer3(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
-        libri_long_text_sp[k] = make_factor_transducer4(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
+        # libri_long_text_sp[k] = make_factor_transducer4(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
+        libri_long_text_sp[k] = make_factor_transducer4_skip(sp.encode(text, out_type=int), word_start_symbols={i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}, return_str=True, blank_penalty=0)
     results[pid] = libri_long_text_sp
 
 
@@ -358,6 +359,10 @@ def get_decoding_graphs(_texts, sp):
     return [fst_graph[i] for i in range(fst_graph.shape[0])]
 
 
+def get_decoding_graphs_factor_transducer(token_ids):
+    return [make_factor_transducer1(t) for t in token_ids]
+
+
 def _make_factor_transducer5(fst_graphs_3, word_start_symbols, two_ends_bonus=1.0):
     # This is similar to make_factor_transducer3
     # We concat three graphs, and then add some bonus to the two ends of the graph to encourage alignment to the two ends
@@ -448,23 +453,23 @@ def _make_factor_transducer5(fst_graphs_3, word_start_symbols, two_ends_bonus=1.
 def make_factor_transducer5(libri_long_text_str, cut_ids, text_ranges, sp, extension=10, two_ends_bonus=1.0):
     # This factor transducer enforce some specific factors to be present in the graph
 
-    text_ranges = [(max(rg[0]-1, 0), rg[1]-1) for cid, rg in zip(cut_ids, text_ranges)]
+    text_ranges = [(max(rg[0]-1, 0), rg[-1]-1) for cid, rg in zip(cut_ids, text_ranges)]
     text_ranges = [
         (
             (max(rg[0]-extension, 0), rg[0]),  # left extension
-            (rg[0], rg[1]),                    # alignment results
-            (rg[1], rg[1]+extension)           # right extension
+            (rg[0], rg[-1]),                    # alignment results
+            (rg[-1], rg[-1]+extension)           # right extension
         ) for cid, rg in zip(cut_ids, text_ranges)
     ]
     text_keys = [tuple(get_uid_key(cid)[:2]) for cid in cut_ids]
-    texts = [" ".join(libri_long_text_str[tk][rg[0]: rg[1]]) for tk, rg3 in zip(text_keys, text_ranges) for rg in rg3]
+    texts = [" ".join(libri_long_text_str[tk][rg[0]: rg[-1]]) for tk, rg3 in zip(text_keys, text_ranges) for rg in rg3]
     token_ids = sp.encode(texts, out_type=int)
     fst_graphs = k2.ctc_graph(token_ids, modified=False, device='cpu')
 
     # token_lens = [(len(left), len(mid), len(right)) for left, mid, right in zip(token_ids[::3], token_ids[1::3], token_ids[2::3])]
     # word_id_lists = [left + mid + right for left, mid, right in zip(token_ids[::3], token_ids[1::3], token_ids[2::3])]
 
-    breakpoint()
+    # breakpoint()
 
     fst_graphs = [(fst_graphs[i], fst_graphs[i+1], fst_graphs[i+2]) for i in range(0, fst_graphs.shape[0], 3)]
     word_start_symbols = {i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}
