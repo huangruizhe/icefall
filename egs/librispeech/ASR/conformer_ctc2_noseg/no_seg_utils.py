@@ -155,10 +155,10 @@ def get_lattice(params, ctc_output, batch, sp, decoding_graph=None):
         supervision_segments=supervision_segments,
         # search_beam=15,
         # output_beam=6,
-        search_beam=20,
-        output_beam=5,
-        min_active_states=30,
-        max_active_states=10000,
+        search_beam=params.search_beam,
+        output_beam=params.output_beam,
+        min_active_states=params.min_active_states,
+        max_active_states=params.max_active_states,
         subsampling_factor=params.subsampling_factor,
     )
     
@@ -248,12 +248,18 @@ def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths,
     # wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=best_paths)
     batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=None, hyps=_texts)
     logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
+    cur_wer_str = '\n'.join([f'{k}: {v}' for k, v in batch_wer['cut_wers'].items()])
+    # logging.info(f"---------------- cut_wer: ----------------\n {cur_wer_str}")
+    _texts_str = '\n'.join([f'{cid}: {t}' for cid, t in zip(cut_ids, _texts)])
+    # logging.info(f"---------------- predicted texts: ----------------\n {_texts_str}")
 
     new_decoding_graph = k2.ctc_graph(token_ids, modified=False, device=ctc_output.device)
     new_decoding_graph = k2.arc_sort(new_decoding_graph)
     new_decoding_graph = [new_decoding_graph[i] for i in range(new_decoding_graph.shape[0])]
 
     new_lattice, new_best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
+    new_best_paths_str = '\n'.join([f'{cid}: {new_best_paths[i].shape, new_best_paths[i].num_arcs}' for i, cid in enumerate(cut_ids)])
+    # logging.info(f"---------------- new_best_paths: ----------------\n {new_best_paths_str}")
     return new_lattice, new_best_paths
 
 
@@ -287,8 +293,8 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
     # breakpoint()
 
     # This only works with `make_factor_transducer4`:
-    lattice, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp)
-    # lattice, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, batch, sp)
+    # lattice, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp)
+    lattice, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, batch, sp)
 
     # Note: interesting:
     # (1) Needs to use `make_factor_transducer4_skip`

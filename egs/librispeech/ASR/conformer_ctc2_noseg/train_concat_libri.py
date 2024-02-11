@@ -356,6 +356,10 @@ def get_params() -> AttributeDict:
             "blank_id": 0,
             "vocab_size": 500,
             "my_args": None,
+            "search_beam": 20,
+            "output_beam": 8,
+            "min_active_states": 30,
+            "max_active_states": 10000,
         }
     )
 
