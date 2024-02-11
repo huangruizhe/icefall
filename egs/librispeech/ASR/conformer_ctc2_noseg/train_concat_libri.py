@@ -940,7 +940,7 @@ def run(rank, world_size, args):
     # train_cuts = train_cuts.sample(n_cuts=1000)
 
     # get long text for each recording
-    libri_long_text_str, libri_long_text_fst = get_long_text(train_cuts, sp=sp, make_fst=True, rank=rank, nj=16 if world_size > 1 else 6)
+    libri_long_text_str, libri_long_text_fst = get_long_text(train_cuts, sp=sp, make_fst=True, rank=rank, nj=16 if params.full_libri else 6)
     libri_long_text_str = {k: v.split() for k, v in libri_long_text_str.items()}
     logging.info(f"len(libri_long_text_fst) = {len(libri_long_text_fst)}")
     my_args = {"libri_long_text_fst": libri_long_text_fst}
