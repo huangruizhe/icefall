@@ -40,7 +40,7 @@ def convert_long_text_to_fst(items, sp, pid, results):
     return libri_long_text_sp
 
 
-def get_long_text(cuts, sp=None, make_fst=False, nj=6):
+def get_long_text(cuts, sp=None, make_fst=False, rank="", nj=6):
     logging.info(f"Getting long text from cuts ... ")  # len(cuts) = {len(cuts)}
     cuts_by_recoding = defaultdict(list)
     for i, c in enumerate(cuts):  # tqdm(cuts, miniters=1000, total=None):
@@ -93,7 +93,7 @@ def get_long_text(cuts, sp=None, make_fst=False, nj=6):
         else:
             libri_long_text_sp = convert_long_text_to_fst(libri_long_text.items(), sp, 0, [None])
 
-        for k, v in tqdm(libri_long_text_sp.items()):
+        for k, v in tqdm(libri_long_text_sp.items(), desc=f"{rank}"):
             libri_long_text_sp[k] = k2.Fsa.from_str(v, acceptor=False)
     
     ram_info = psutil.virtual_memory()

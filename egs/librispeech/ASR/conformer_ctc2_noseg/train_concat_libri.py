@@ -552,7 +552,7 @@ def compute_loss(
         y_long = None
     
     # Eval training wer for this batch here
-    if True and is_training:
+    if True and is_training and params.world_size == 1:
         # # wer_decoding_graph = k2.arc_sort(k2.create_fsa_vec(y_long)).to(ctc_output.device)
         # batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long)
         batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=get_decoding_graphs_factor_transducer(y.tolist()))
@@ -572,7 +572,7 @@ def compute_loss(
         reduction="sum",
     )
 
-    if params.my_args is not None and params.my_args["long_ctc"]:
+    if is_training and params.my_args is not None and params.my_args["long_ctc"]:
         # get_next_anchor_point(params, ctc_output, batch, sp, decoding_graph=y_long)
         ctc_loss_long, inf_indices = compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=y_long)
         feature_lens[inf_indices] = 0
@@ -591,6 +591,8 @@ def compute_loss(
 
     # Note: We use reduction=sum while computing the loss.
     info["loss"] = loss.detach().cpu().item()
+    info["ctc_loss"] = ctc_loss.detach().cpu().item()
+    info["ctc_loss_long"] = ctc_loss_long.detach().cpu().item()
 
     # `utt_duration` and `utt_pad_proportion` would be normalized by `utterances`  # noqa
     info["utterances"] = feature.size(0)
@@ -938,7 +940,7 @@ def run(rank, world_size, args):
     # train_cuts = train_cuts.sample(n_cuts=1000)
 
     # get long text for each recording
-    libri_long_text_str, libri_long_text_fst = get_long_text(train_cuts, sp=sp, make_fst=True)
+    libri_long_text_str, libri_long_text_fst = get_long_text(train_cuts, sp=sp, make_fst=True, rank=rank, nj=16 if world_size > 1 else 6)
     libri_long_text_str = {k: v.split() for k, v in libri_long_text_str.items()}
     logging.info(f"len(libri_long_text_fst) = {len(libri_long_text_fst)}")
     my_args = {"libri_long_text_fst": libri_long_text_fst}

@@ -218,6 +218,11 @@ def get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths
     return wer
 
 
+def handle_emtpy_texts(token_ids_indices):
+    # Just use [0, 1] for every empty decoding result
+    return [tkid if len(tkid) > 0 else [0, 1] for tkid in token_ids_indices]
+
+
 def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp):
     # use decoding results text as ground truth
 
@@ -231,14 +236,15 @@ def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths,
     # TODO: we can get aligment time stamps here
     # decoding_results = get_texts_with_timestamp(best_path)
     # decoding_results.timestamps
-    _token_ids = get_texts(best_paths)
+    token_ids_indices = get_texts(best_paths)
+    token_ids_indices = handle_emtpy_texts(token_ids_indices)
 
     assert "libri_long_text_str" in params.my_args and params.my_args["libri_long_text_str"] is not None
 
-    # That means _token_ids are actually indices
+    # That means `token_ids_indices` are actually indices
     libri_long_text_str = params.my_args["libri_long_text_str"]
     cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
-    _texts = [libri_long_text_str[tuple(get_uid_key(cid)[:2])][max(rg[0]-1, 0): rg[-1]-1] for cid, rg in zip(cut_ids, _token_ids)]
+    _texts = [libri_long_text_str[tuple(get_uid_key(cid)[:2])][max(rg[0]-1, 0): rg[-1]-1] for cid, rg in zip(cut_ids, token_ids_indices)]
     _texts = [" ".join(t) for t in _texts]
     token_ids = sp.encode(_texts, out_type=int)
 
@@ -248,9 +254,9 @@ def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths,
     # wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=best_paths)
     batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=None, hyps=_texts)
     logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
-    cur_wer_str = '\n'.join([f'{k}: {v}' for k, v in batch_wer['cut_wers'].items()])
+    # cur_wer_str = '\n'.join([f'{k}: {v}' for k, v in batch_wer['cut_wers'].items()])
     # logging.info(f"---------------- cut_wer: ----------------\n {cur_wer_str}")
-    _texts_str = '\n'.join([f'{cid}: {t}' for cid, t in zip(cut_ids, _texts)])
+    # _texts_str = '\n'.join([f'{cid}: {t}' for cid, t in zip(cut_ids, _texts)])
     # logging.info(f"---------------- predicted texts: ----------------\n {_texts_str}")
 
     new_decoding_graph = k2.ctc_graph(token_ids, modified=False, device=ctc_output.device)
@@ -258,7 +264,7 @@ def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths,
     new_decoding_graph = [new_decoding_graph[i] for i in range(new_decoding_graph.shape[0])]
 
     new_lattice, new_best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=new_decoding_graph)
-    new_best_paths_str = '\n'.join([f'{cid}: {new_best_paths[i].shape, new_best_paths[i].num_arcs}' for i, cid in enumerate(cut_ids)])
+    # new_best_paths_str = '\n'.join([f'{cid}: {new_best_paths[i].shape, new_best_paths[i].num_arcs}' for i, cid in enumerate(cut_ids)])
     # logging.info(f"---------------- new_best_paths: ----------------\n {new_best_paths_str}")
     return new_lattice, new_best_paths
 
@@ -277,6 +283,7 @@ def compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths,
     # decoding_results = get_texts_with_timestamp(best_path)
     # decoding_results.timestamps
     token_ids_indices = get_texts(best_paths)
+    token_ids_indices = handle_emtpy_texts(token_ids_indices)
 
     libri_long_text_str = params.my_args["libri_long_text_str"]
     cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
@@ -296,7 +303,7 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
     # lattice, best_paths = compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp)
     lattice, best_paths = compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths, batch, sp)
 
-    # Note: interesting:
+    # Note: unexpectedly interesting:
     # (1) Needs to use `make_factor_transducer4_skip`
     # (2) Needs to use `compute_sub_factor_transducer_loss1` or `compute_sub_factor_transducer_loss2`
 
