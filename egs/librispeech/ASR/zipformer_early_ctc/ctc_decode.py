@@ -349,7 +349,7 @@ def decode_one_batch(
             value=LOG_EPS,
         )
 
-    encoder_out, encoder_out_lens = model.forward_encoder(feature, feature_lens)
+    _encoder_out, encoder_out_lens, encoder_out = model.forward_encoder(feature, feature_lens)
     ctc_output = model.ctc_output(encoder_out)  # (N, T, C)
 
     supervision_segments = torch.stack(
