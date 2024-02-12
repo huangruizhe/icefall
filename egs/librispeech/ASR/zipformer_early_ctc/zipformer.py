@@ -202,6 +202,7 @@ class Zipformer2(EncoderInterface):
         )
 
         self.i_intermediate = -3
+        print(f"self.i_intermediate = {self.i_intermediate}")
         self.downsample_intermediate_output = SimpleDownsample(
             encoder_dim[self.i_intermediate], downsample=output_downsampling_factor, dropout=dropout
         )
