@@ -52,10 +52,13 @@ def get_long_text(cuts, sp=None, make_fst=False, rank="", nj=6):
         #     print(f"progress: {i}")
 
     libri_long_text = dict()
+    size_recording = 0
     for k, v in cuts_by_recoding.items():
         v.sort(key = lambda x: get_uid_key(x.id)[-1])
         text = " ".join([c.supervisions[0].text for c in v])
         libri_long_text[k] = text
+        size_recording += len(v)
+    logging.info(f"Average size of recordings: {size_recording/len(cuts_by_recoding):.3f} cuts")
     
     if sp is None:
         return libri_long_text, None
@@ -93,8 +96,14 @@ def get_long_text(cuts, sp=None, make_fst=False, rank="", nj=6):
         else:
             libri_long_text_sp = convert_long_text_to_fst(libri_long_text.items(), sp, 0, [None])
 
+        num_states, num_arcs = 0, 0
         for k, v in tqdm(libri_long_text_sp.items(), desc=f"{rank}"):
-            libri_long_text_sp[k] = k2.Fsa.from_str(v, acceptor=False)
+            my_fst = k2.Fsa.from_str(v, acceptor=False)
+            num_states += my_fst.shape[0]
+            num_arcs += my_fst.num_arcs
+            libri_long_text_sp[k] = my_fst
+        
+        logging.info(f"Averge number of states: {num_states/len(libri_long_text_sp)}, average number of arcs: {num_arcs/len(libri_long_text_sp)}")
     
     ram_info = psutil.virtual_memory()
     ram_used_mb = ram_info.used / (1024 ** 2)  # Convert bytes to megabytes

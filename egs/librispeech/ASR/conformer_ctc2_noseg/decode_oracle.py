@@ -18,6 +18,8 @@ from factor_transducer import *
 from no_seg_utils import *
 
 
+
+
 def decode_dataset_oracle_main(
     dl: torch.utils.data.DataLoader,
     params: AttributeDict,
@@ -160,6 +162,9 @@ def decode_dataset_oracle(
 
         if batch_idx % 100 == 0:
             batch_str = f"{batch_idx}/{num_batches}"
-
             logging.info(f"batch {batch_str}, cuts processed until now is {num_cuts}")
+        
+        # logging.info(f"batch_idx={batch_idx}")
+        # if batch_idx > 200:
+        #     break
     return results

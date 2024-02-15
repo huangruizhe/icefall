@@ -157,6 +157,8 @@ fi
 # Get a SMALL seed model first on a small subset
 ##################################################
 
+# Number of model parameters: 9929502
+
 if false; then
     exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model
     ./conformer_ctc2_noseg/train_seed_small.py \
@@ -175,19 +177,39 @@ if false; then
     for method in ctc-greedy-search ctc-decoding 1best nbest-oracle; do
       python3 ./conformer_ctc2_noseg/decode_small.py \
         --exp-dir $exp_dir \
-        --use-averaged-model True --epoch 10 --avg 3 --max-duration 400 --method $method \
+        --use-averaged-model True --epoch 30 --avg 8 --max-duration 800 --method $method \
         --num-decoder-layers 0
     done
+    
+    # --epoch 10 --avg 3 
+    # ctc-greedy-search 16.96/35.67
+    # ctc-decoding      16.96/35.67
+    # 1best             10.66/25.62
+    # nbest-oracle      5.97/17.44
 
-    # decode with factor transducer
+    # --epoch 30 --avg 8
+    # ctc-greedy-search 14.18/31.9
+    # ctc-decoding      14.18/31.9
+    # 1best             9.64/23.49
+    # nbest-oracle      5.91/16.39
+
+    # decode with factor transducer and long text ground truth
     python3 ./conformer_ctc2_noseg/decode_small.py \
       --exp-dir $exp_dir \
-      --use-averaged-model True --epoch 10 --avg 3 --max-duration 400 --method 'ctc-decoding' \
+      --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000 --method 'ctc-decoding' \
       --num-decoder-layers 0 --oracle True
     
-    # train/eval model
-    # test-clean 2.89[1519 / 52576, 32 ins, 1465 del, 22 sub ] / 2.72[1432 / 52576, 15 ins, 1404 del, 13 sub ]
-    # test-other 2.99[1566 / 52343, 118 ins, 1392 del, 56 sub ] / 2.77[1450 / 52343, 168 ins, 1188 del, 94 sub ]
+    # train/eval mode, --epoch 10 --avg 3 
+    # train-100  3.62% [104587 / 2891987, 2093 ins, 101879 del, 615 sub ] / 3.40% [98435 / 2891987, 2027 ins, 95545 del, 863 sub ]
+    # train-full 
+    # test-clean 2.89% [1519 / 52576, 32 ins, 1465 del, 22 sub ] / 2.72% [1432 / 52576, 15 ins, 1404 del, 13 sub ]
+    # test-other 2.99% [1566 / 52343, 118 ins, 1392 del, 56 sub ] / 2.77% [1450 / 52343, 168 ins, 1188 del, 94 sub ]
+
+    # train/eval mode, --epoch 30 --avg 8
+    # train-100  3.52% [103319 / 2935692, 2608 ins, 98989 del, 1722 sub ] / 3.37% [98836 / 2935692, 3266 ins, 93108 del, 2462 sub ]
+    # train-full 4.63% [1305687 / 28178989, 46629 ins, 1211074 del, 47984 sub ] / 4.44% [1252477 / 28178989, 59116 ins, 1120030 del, 73331 sub ]
+    # test-clean 3.01% [1581 / 52576, 52 ins, 1451 del, 78 sub ] / 3.22% [1695 / 52576, 122 ins, 1409 del, 164 sub ]
+    # test-other 3.78% [1979 / 52343, 308 ins, 1398 del, 273 sub ] / 3.26% [1705 / 52343, 306 ins, 1207 del, 192 sub ]
 fi
 
 
