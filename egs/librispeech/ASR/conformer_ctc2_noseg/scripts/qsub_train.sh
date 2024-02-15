@@ -154,6 +154,44 @@ if false; then
 fi
 
 ##################################################
+# Get a SMALL seed model first on a small subset
+##################################################
+
+if false; then
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model
+    ./conformer_ctc2_noseg/train_seed_small.py \
+      --exp-dir $exp_dir \
+      --lang-dir data/lang_bpe_500 \
+      --full-libri 0 \
+      --num-decoder-layers 0 \
+      --max-duration 200 \
+      --concatenate-cuts 0 \
+      --world-size 4 \
+      --bucketing-sampler 1 \
+      --start-epoch 1 \
+      --num-epochs 30 \
+      --att-rate 0
+    
+    for method in ctc-greedy-search ctc-decoding 1best nbest-oracle; do
+      python3 ./conformer_ctc2_noseg/decode_small.py \
+        --exp-dir $exp_dir \
+        --use-averaged-model True --epoch 10 --avg 3 --max-duration 400 --method $method \
+        --num-decoder-layers 0
+    done
+
+    # decode with factor transducer
+    python3 ./conformer_ctc2_noseg/decode_small.py \
+      --exp-dir $exp_dir \
+      --use-averaged-model True --epoch 10 --avg 3 --max-duration 400 --method 'ctc-decoding' \
+      --num-decoder-layers 0 --oracle True
+    
+    # train/eval model
+    # test-clean 2.89[1519 / 52576, 32 ins, 1465 del, 22 sub ] / 2.72[1432 / 52576, 15 ins, 1404 del, 13 sub ]
+    # test-other 2.99[1566 / 52343, 118 ins, 1392 del, 56 sub ] / 2.77[1450 / 52343, 168 ins, 1188 del, 94 sub ]
+fi
+
+
+##################################################
 # Train with train_concat_libri
 ##################################################
 

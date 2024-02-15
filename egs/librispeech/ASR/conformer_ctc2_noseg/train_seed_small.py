@@ -89,9 +89,6 @@ from icefall.utils import (
     setup_logger,
     str2bool,
 )
-from factor_transducer import *
-from no_seg_utils import *
-
 
 LRSchedulerType = Union[torch.optim.lr_scheduler._LRScheduler, optim.LRScheduler]
 
@@ -341,10 +338,10 @@ def get_params() -> AttributeDict:
             # parameters for conformer
             "feature_dim": 80,
             "subsampling_factor": 4,
-            "encoder_dim": 512,
+            "encoder_dim": 128,
             "nhead": 8,
-            "dim_feedforward": 2048,
-            "num_encoder_layers": 12,
+            "dim_feedforward": 512,
+            "num_encoder_layers": 8,
             # parameters for ctc loss
             "beam_size": 10,
             "reduction": "sum",
@@ -355,11 +352,6 @@ def get_params() -> AttributeDict:
             # new parameters
             "blank_id": 0,
             "vocab_size": 500,
-            "my_args": None,
-            "search_beam": 20,
-            "output_beam": 8,
-            "min_active_states": 30,
-            "max_active_states": 10000,
         }
     )
 
@@ -532,31 +524,9 @@ def compute_loss(
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y)
 
-    # logging.info(f"lens (before): [{[len(t.split()) for t in texts]}]")
-    # texts = modify_texts(texts, batch_idx_train=params.batch_idx_train)
-    # logging.info(f"lens (after): [{[len(t.split()) for t in texts]}]")
-
     row_splits = y.shape.row_splits(1)
     target_lengths = row_splits[1:] - row_splits[:-1]
     targets = y.values   # on CPU
-
-    cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
-    if is_training and params.my_args is not None and params.my_args["long_ctc"]:
-        libri_long_text_fst = params.my_args["libri_long_text_fst"]
-        y_long = [libri_long_text_fst[tuple(get_uid_key(cid)[:2])] for cid in cut_ids]
-        # y_long = get_decoding_graphs(texts)
-        # y_long = [make_factor_transducer1(sp.encode(text, out_type=int), return_str=False, blank_penalty=0) for text in texts]
-        # k2.ragged.create_ragged_tensor([ [1, 2], [5], [], [9] ])
-        # k2.ragged.create_ragged_tensor([ [1, 2], [5], [], [9] ]).tolist()
-    else:
-        y_long = None
-    
-    # Eval training wer for this batch here
-    if True and is_training and params.world_size == 1:
-        # # wer_decoding_graph = k2.arc_sort(k2.create_fsa_vec(y_long)).to(ctc_output.device)
-        # batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long)
-        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=get_decoding_graphs_factor_transducer(y.tolist()))
-        logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
 
     encoder_out_lens = torch.div(
         supervisions["num_frames"],
@@ -572,15 +542,7 @@ def compute_loss(
         reduction="sum",
     )
 
-    get_next_anchor_point(params, ctc_output, batch, sp, decoding_graph=y_long)
-
-    if False and is_training and params.my_args is not None and params.my_args["long_ctc"]:
-        ctc_loss_long, inf_indices = compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=y_long)
-        feature_lens[inf_indices] = 0
-        loss = ctc_loss_long
-    else:
-        ctc_loss_long = torch.tensor(0)
-        loss = ctc_loss
+    loss = ctc_loss
 
     assert loss.requires_grad == is_training
 
@@ -592,8 +554,6 @@ def compute_loss(
 
     # Note: We use reduction=sum while computing the loss.
     info["loss"] = loss.detach().cpu().item()
-    info["ctc_loss"] = ctc_loss.detach().cpu().item()
-    info["ctc_loss_long"] = ctc_loss_long.detach().cpu().item()
 
     # `utt_duration` and `utt_pad_proportion` would be normalized by `utterances`  # noqa
     info["utterances"] = feature.size(0)
@@ -863,7 +823,7 @@ def run(rank, world_size, args):
         num_decoder_layers=params.num_decoder_layers,
     )
 
-    print(model)
+    # print(model)
 
     num_param = sum([p.numel() for p in model.parameters()])
     logging.info(f"Number of model parameters: {num_param}")
@@ -903,7 +863,6 @@ def run(rank, world_size, args):
     if params.print_diagnostics:
         diagnostic = diagnostics.attach_diagnostics(model)
 
-    args.return_cuts = True
     librispeech = LibriSpeechAsrDataModule(args)
 
     if params.full_libri:
@@ -937,24 +896,20 @@ def run(rank, world_size, args):
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
     train_cuts = train_cuts.filter(remove_invalid_utt_ctc)
 
-    # train_cuts = train_cuts.to_eager()
-    # train_cuts = train_cuts.sample(n_cuts=1000)
-
-    # get long text for each recording
-    libri_long_text_str, libri_long_text_fst = get_long_text(train_cuts, sp=sp, make_fst=True, rank=rank, nj=16 if params.full_libri else 6)
-    libri_long_text_str = {k: v.split() for k, v in libri_long_text_str.items()}
-    logging.info(f"len(libri_long_text_fst) = {len(libri_long_text_fst)}")
-    my_args = {"libri_long_text_fst": libri_long_text_fst}
-    my_args |= {"libri_long_text_str": libri_long_text_str}  # Only for make_factor_transducer4
-    my_args |= {"long_ctc": True}
-    my_args |= {
-        "make_factor_transducer1": make_factor_transducer1,
-        "make_factor_transducer2": make_factor_transducer2,
-        "make_factor_transducer3": make_factor_transducer3,
-        "make_factor_transducer4": make_factor_transducer4,
-    }
-    params.my_args = my_args
-    # params.my_args = {}
+    # Get a seed model on small data
+    import lhotse
+    train_cuts = lhotse.load_manifest_lazy("data/fbank/librispeech_cuts_train-clean-100-35h.jsonl.gz")
+    train_cuts = train_cuts.to_eager()
+    if rank == 0:
+        train_cuts.describe()
+    logging.info("Multiply train_cut ...")
+    train_cuts = train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts
+    import random
+    import string
+    custom_characters = string.ascii_letters + string.digits
+    train_cuts = train_cuts.modify_ids(lambda cut_id: f"{cut_id}_{''.join(random.choices(custom_characters, k=5))}")
+    if rank == 0:
+        train_cuts.describe()
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint

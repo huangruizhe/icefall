@@ -220,7 +220,9 @@ def get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths
 
 def handle_emtpy_texts(token_ids_indices):
     # Just use [0, 1] for every empty decoding result
-    return [tkid if len(tkid) > 0 else [0, 1] for tkid in token_ids_indices]
+    new_token_ids_indices = [tkid if len(tkid) > 0 else [0, 1] for tkid in token_ids_indices]
+    is_empty_best_path = [False if len(tkid) > 0 else True for tkid in token_ids_indices]
+    return new_token_ids_indices, is_empty_best_path
 
 
 def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths, batch, sp):
@@ -237,7 +239,7 @@ def compute_sub_factor_transducer_loss1(params, ctc_output, lattice, best_paths,
     # decoding_results = get_texts_with_timestamp(best_path)
     # decoding_results.timestamps
     token_ids_indices = get_texts(best_paths)
-    token_ids_indices = handle_emtpy_texts(token_ids_indices)
+    token_ids_indices, _ = handle_emtpy_texts(token_ids_indices)
 
     assert "libri_long_text_str" in params.my_args and params.my_args["libri_long_text_str"] is not None
 
@@ -287,7 +289,7 @@ def compute_sub_factor_transducer_loss2(params, ctc_output, lattice, best_paths,
     # decoding_results = get_texts_with_timestamp(best_path)
     # decoding_results.timestamps
     token_ids_indices = get_texts(best_paths)
-    token_ids_indices = handle_emtpy_texts(token_ids_indices)
+    token_ids_indices, _ = handle_emtpy_texts(token_ids_indices)
 
     libri_long_text_str = params.my_args["libri_long_text_str"]
     cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
@@ -356,44 +358,42 @@ def compute_ctc_loss_long(params, ctc_output, batch, sp, decoding_graph=None):
 
 
 def get_next_anchor_point(params, ctc_output, batch, sp, decoding_graph=None):
-    lattice, indices = get_lattice(params, ctc_output, batch, sp, decoding_graph)
-
-    best_paths = one_best_decoding(
-        lattice=lattice,
-        use_double_scores=True,
-    )
+    lattice, best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph)
 
     lattice = lattice.detach()
     best_paths = best_paths.detach()
-
-    _indices = {i_old : i_new for i_new, i_old in enumerate(indices.tolist())}
-    best_paths = [best_paths[_indices[i]] for i in range(len(_indices))]
-    best_paths = k2.create_fsa_vec(best_paths)
 
     # TODO: we can get aligment time stamps here
     decoding_results = get_texts_with_timestamp(best_paths)
     timestamps = decoding_results.timestamps
     token_ids_indices = decoding_results.hyps
-    token_ids_indices = handle_emtpy_texts(token_ids_indices)
+    token_ids_indices, is_empty_best_path = handle_emtpy_texts(token_ids_indices)
 
     assert "libri_long_text_str" in params.my_args and params.my_args["libri_long_text_str"] is not None
 
-    # That means `token_ids_indices` are actually indices
-    libri_long_text_str = params.my_args["libri_long_text_str"]
-    cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
-    _texts = [libri_long_text_str[tuple(get_uid_key(cid)[:2])][max(rg[0]-1, 0): rg[-1]-1] for cid, rg in zip(cut_ids, token_ids_indices)]
-    _texts = [" ".join(t) for t in _texts]
-    token_ids = sp.encode(_texts, out_type=int)
+    if False:
+        # That means `token_ids_indices` are actually indices
+        libri_long_text_str = params.my_args["libri_long_text_str"]
+        cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
+        _texts = [libri_long_text_str[tuple(get_uid_key(cid)[:2])][max(rg[0]-1, 0): rg[-1]-1] for cid, rg in zip(cut_ids, token_ids_indices)]
+        _texts = [" ".join(t) for t in _texts]
+        token_ids = sp.encode(_texts, out_type=int)
 
-    # breakpoint()
-    # !import code; code.interact(local=vars())
-    
-    # wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=best_paths)
-    batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=None, hyps=_texts)
-    logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
+        # breakpoint()
+        # !import code; code.interact(local=vars())
+        
+        # wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=best_paths)
+        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths=None, hyps=_texts)
+        logging.info(f"batch_wer [{params.batch_idx_train}]: {batch_wer['tot_wer_str']}")
 
+    anchors = [(tkidx[-1], timestamps[i][-1]) if not is_empty else None for i, (tkidx, is_empty) in enumerate(zip(token_ids_indices, is_empty_best_path))]
+    logging.info(f"anchors: {anchors}")
+    logging.info(f"any empty? {any(is_empty_best_path)}")
     breakpoint()
     pass
+    
+    # logging.info()
+    
 
 
 
