@@ -247,7 +247,7 @@ class WordCounter:
     def c1(self): return self.counter1
     def c2(self): return self.counter2
     def c3(self): return self.counter3
-    def reset(): 
+    def reset(self): 
         self.counter1 = 0
         self.counter2 = 1; self.counter2_ = 0
         self.counter3 = 0
@@ -271,8 +271,11 @@ def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, 
 
     non_eps_nodes1 = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
     non_eps_nodes1 = sorted(non_eps_nodes1, key=lambda x: x[0])
-    non_eps_nodes2 = list((arc[0], arc[1]) for arc in arcs if arc[3] < 0 or (arc[3] > 0 and arc[3] in word_start_symbols and arc[0] > 0))   # if this node has a non-eps, word-start out-going arc
     self_loops = {ss: l1 for ss, ee, l1, l2, w in arcs if ss == ee}
+    # non_eps_nodes2 = list((arc[0], arc[1]) for arc in arcs if arc[3] < 0 or (arc[3] > 0 and arc[3] in word_start_symbols and arc[0] > 0))   # if this node has a non-eps, word-start out-going arc
+    word_start = set(x[0] for x in non_eps_nodes1)
+    non_eps_nodes2 = [(w - j, w) for w in word_start for j in [1, 2] if w - j > 0]
+    non_eps_nodes2.extend([(final_state - 2, final_state), (final_state - 1, final_state)])
 
     arcs = [arcs[0]] + arcs[2:-5] + [a for a in arcs[-5:] if a[2] >= 0]
     arcs = [[ss, ee, l1, 0, w] for ss, ee, l1, l2, w in arcs]
@@ -325,13 +328,14 @@ def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=Fa
 
     non_eps_nodes1 = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0 and arc[3] in word_start_symbols)   # if this node has a non-eps, word-start in-coming arc
     non_eps_nodes1 = sorted(non_eps_nodes1, key=lambda x: x[0])
-    non_eps_nodes2 = list((arc[0], arc[1]) for arc in arcs if arc[3] < 0 or (arc[3] > 0 and arc[3] in word_start_symbols and arc[0] > 0))   # if this node has a non-eps, word-start out-going arc
     self_loops = {ss: l1 for ss, ee, l1, l2, w in arcs if ss == ee}
+    non_eps_nodes2 = list((arc[0], arc[1]) if self_loops[arc[0]] > 0 else (arc[0] - 1, arc[1]) for arc in arcs if arc[3] < 0 or (arc[3] > 0 and arc[3] in word_start_symbols and arc[0] > 0))   # if this node has a non-eps, word-start out-going arc; be careful for the special case
+    non_eps_nodes2 = [non_eps_nodes2[0]] + [(ss2, ee2) for (ss1, ee1), (ss2, ee2) in zip(non_eps_nodes2, non_eps_nodes2[1:]) if ss2 != ss1]  # deduplication
 
     # eps_arcs1 = [(ss, ee) for ss, ee, l1, l2, w in arcs if ss != ee and l1 == 0]
     # token_starts = [ss for ss, ee, l1, l2, w in arcs if ss == ee and l1 > 0]
     eps_self_loops = [ss for ss, l1 in self_loops.items() if l1 == 0]
-    eps_self_loops = eps_self_loops[1:-1]
+    eps_self_loops = sorted(eps_self_loops[1:-1])
 
     arcs = [arcs[0]] + arcs[2:-5] + [a for a in arcs[-5:] if a[2] >= 0]
     arcs = [[ss, ee, l1, 0, w] for ss, ee, l1, l2, w in arcs]
@@ -346,6 +350,58 @@ def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=Fa
     # skip arcs
     # arcs += [(n, next_token, self_loops[next_token], 0, 0) for ns, next_token in zip(eps_arcs1, token_starts[2:]) for n in ns]
     arcs += [(n1, n2, 0, 0, skip_penalty) for n1, n2 in zip(eps_self_loops, eps_self_loops[1:])]
+
+    # validation: monotonic order
+    if False:
+        node_arcs_in = defaultdict(list)
+        node_arcs_out = defaultdict(list)
+        for a in arcs:
+            ss, ee, l1, l2, w = a
+            node_arcs_out[ss].append(a)
+            node_arcs_in[ee].append(a)
+        cur_edge_id = -1
+        breakpoint()
+        for i in range(1, final_state):
+            for in_arc in node_arcs_in[i]:
+                if in_arc[0] == 0 and in_arc[3] > 0:
+                    assert in_arc[3] >= cur_edge_id, f"in_arc={in_arc}, cur_edge_id={cur_edge_id}"
+                    cur_edge_id = in_arc[3]
+            for out_arc in node_arcs_out[i]:
+                if out_arc[1] == final_state and out_arc[3] > 0:
+                    assert out_arc[3] >= cur_edge_id, f"out_arc={out_arc}, cur_edge_id={cur_edge_id}"
+                    cur_edge_id = out_arc[3]
+    
+    # validation: same label to the final-1 state or next state
+    if False:
+        word_start = {w[0]: i+1 for i, w in enumerate(non_eps_nodes1)}
+        word_end = [w - j for w, i in word_start.items() for j in [1, 2] if w - j > 0]
+        # word_end.extend([final_state - 2, final_state - 1])
+        word_end = [w for w in word_end if self_loops[w] > 0]
+        # print(sorted(word_start)[:100])
+        # print(sorted(word_end)[:100])
+
+        assert len(word_start) == len(word_end) + 1
+        assert len(word_start) == len(book.split())
+        assert len(word_start) == len(non_eps_nodes2)
+
+        node_arcs_in = defaultdict(list)
+        node_arcs_out = defaultdict(list)
+        for a in arcs:
+            ss, ee, l1, l2, w = a
+            node_arcs_out[ss].append(a)
+            node_arcs_in[ee].append(a)
+        for i in word_end:
+            out_arc_label = None
+            next_word_label = None
+            for out_arc in node_arcs_out[i]:
+                if out_arc[1] == final_state:
+                    out_arc_label = out_arc[3]
+                if out_arc[1] in word_start and out_arc[0] != out_arc[1]:
+                    next_word_label = word_start[out_arc[1]]
+            if next_word_label is None:
+                next_word_label = word_start.get(i + 2, None)
+            if self_loops[i] > 0:
+                assert out_arc_label == next_word_label, f"state={i}, out_arc_label={out_arc_label}, next_word_label={next_word_label}"
 
     arcs += [(final_state, final_state, 0, 0, 0)]
     arcs += [(final_state, final_state + 1, -1, -1, 0)]

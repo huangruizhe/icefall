@@ -1008,15 +1008,15 @@ def main():
 
             save_results(params=params, test_set_name=test_set, results_dict=results_dict)
     else:
-        # train_cuts = librispeech.train_clean_100_cuts()
-        train_cuts = librispeech.train_all_shuf_cuts()
+        # # train_cuts = librispeech.train_clean_100_cuts()
+        # train_cuts = librispeech.train_all_shuf_cuts()
         
-        train_dl = librispeech.train_dataloaders(
-            train_cuts, sampler_state_dict=None,
-        )
-        test_sets = ["train-100"]
-        test_dl = [train_dl]
-        test_cuts = [train_cuts]
+        # train_dl = librispeech.train_dataloaders(
+        #     train_cuts, sampler_state_dict=None,
+        # )
+        # test_sets = ["train-100"]
+        # test_dl = [train_dl]
+        # test_cuts = [train_cuts]
 
         for test_set, test_cut, test_dl in zip(test_sets, test_cuts, test_dl):
             rs_train, rs_eval = decode_dataset_oracle_main(
