@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import Tuple, Union
 import glob
+import string
 
 import torch
 from torch import Tensor
@@ -66,8 +67,13 @@ class EarningsCallLongAudioDataset(Dataset):
             waveform, sample_rate = torchaudio.load(audio_path)
         except:  # in case of broken file
             waveform, sample_rate = [], -1
+        
+        meta_data = {
+            "audio_path": audio_path,
+            "trans_path": trans_path,
+        }
 
-        return waveform, sample_rate, text, speaker_id, audio_id, audio_path
+        return waveform, sample_rate, text, speaker_id, audio_id, meta_data
 
     def __len__(self) -> int:
         return len(self.audio_files)
@@ -87,13 +93,12 @@ class LibrispeechLongAudioDataset(Dataset):
     def __init__(
         self,
         root: Union[str, Path],
-        audio_type: str = "mp3",
     ) -> None:
         self.root = root
 
         manifest_file = f"{root}/LibriSpeechOriginal/chapter_manifest.txt"
         with open(manifest_file) as fin:
-            self.manifest = [l.strip().split("\t") for l in fin.readlines() if l.strip() > 0]
+            self.manifest = [l.strip().split("\t") for l in fin.readlines() if len(l.strip()) > 0]
 
     def text_normalize(self, text: str) -> str:
         # We preserve the word index in the transcript (i.e, we don't remove words)
@@ -157,14 +162,22 @@ class LibrispeechLongAudioDataset(Dataset):
         speaker_id = Path(audio_path).parent.parent.stem
         book_id = Path(text_path).parent.stem
 
-        text = self.load_book(text_path)
+        text = self.load_book(f"{self.root}/{text_path}")
 
         try:
-            waveform, sample_rate = torchaudio.load(audio_path)
+            waveform, sample_rate = torchaudio.load(f"{self.root}/{audio_path}")
         except:  # in case of broken file
             waveform, sample_rate = [], -1
+        
+        meta_data = {
+            "book_id": book_id,
+            "chapter_id": chapter_id,
+            "speaker_id": speaker_id,
+            "audio_path": audio_path,
+            "text_path": text_path,
+        }
 
-        return waveform, sample_rate, text, speaker_id, audio_id, audio_path
+        return waveform, sample_rate, text, speaker_id, chapter_id, meta_data 
 
     def __len__(self) -> int:
         return len(self.manifest)
@@ -175,11 +188,24 @@ class TedliumLongAudioDataset(Dataset):
 
 
 if __name__ == "__main__":
-    long_dataset = LongAudioDataset(
-        root = "/scratch4/skhudan1/rhuang25/data/seekingalpha/audio2019/",
-    )
 
-    waveform, sample_rate, text, speaker_id, audio_id, audio_path = \
-        long_dataset[0]
+    import logging
+    logging.basicConfig(
+        format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
+        level = 10
+    )
     
+    # long_dataset = EarningsCallLongAudioDataset(
+    #     root = "/scratch4/skhudan1/rhuang25/data/seekingalpha/audio2019/",
+    # )
+    # waveform, sample_rate, text, speaker_id, audio_id, meta_data = \
+    #     long_dataset[0]    
+    # print(f"[{audio_id}] len(text) = {len(text)}")
+
+    long_dataset = LibrispeechLongAudioDataset(
+        root = "/exp/rhuang/meta/icefall/egs/librispeech/ASR/download/",
+    )
+    waveform, sample_rate, text, speaker_id, audio_id, meta_data = \
+        long_dataset[0]    
     print(f"[{audio_id}] len(text) = {len(text)}")
+
