@@ -1,7 +1,8 @@
 import random
 import math
+import json
 from functools import partial
-from typing import List
+from typing import List, Optional, Dict, Any
 
 import torch
 import torchaudio
@@ -10,6 +11,7 @@ import torchaudio.transforms as T
 from data_musan_dataset import Musan
 
 from lhotse import Fbank, FbankConfig
+from lhotse.dataset import SpecAugment
 
 
 class AddNoise(torch.nn.Module):
@@ -89,7 +91,7 @@ class LhotseFbank(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.sample_rate = 16000
+        self.target_sample_rate = 16000
         self.extractor = Fbank()  # It's 16kHz. https://github.com/lhotse-speech/lhotse/blob/master/lhotse/features/kaldi/extractors.py#L24
         # self.extractor = Fbank(FbankConfig(num_mel_bins=num_mel_bins))  # https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/compute_fbank_librispeech.py#L119
     
@@ -98,11 +100,11 @@ class LhotseFbank(torch.nn.Module):
         #     sample, sampling_rate=sampling_rate, lengths=wave_lens
         # )
 
-        if sampling_rate != self.sample_rate:
-            sample = F.resample(sample, sampling_rate, self.sample_rate)
+        if sampling_rate != self.target_sample_rate:
+            sample = F.resample(sample, sampling_rate, self.target_sample_rate)
 
         with torch.no_grad():
-            features = self.extractor.extract(sample, sampling_rate=self.sample_rate)
+            features = self.extractor.extract(sample, sampling_rate=self.target_sample_rate)
         return features
 
 
@@ -128,6 +130,35 @@ musan_path = "/home/rhuang25/work/icefall/egs/librispeech/ASR/download/musan/"
 subsets = ["noise", "music"]  # ["music", "noise", "speech"]  # TODO: check what's done in lhotse
 musan = Musan(musan_path, subsets)
 _additive_noise_transform = AddNoise(musan, snr=(15, 25), p=0.5)
+
+_spec_aug_transform = SpecAugment(
+    time_warp_factor=80,
+    num_frame_masks=10,
+    features_mask_size=27,
+    num_feature_masks=2,
+    frames_mask_size=100,
+)
+
+# What transforms are there in icefall?
+# - Add noise          [mine]
+# - Speed perturbation [torchaudio]
+# - SpecAugment        [lhotse/icefall] 
+# In torchaudio, there's another:
+# - _piecewise_linear_log
+# - GlobalStatsNormalization
+
+# check the transforms here:
+# https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/tdnn_lstm_ctc/asr_datamodule.py#L218
+# https://github.com/lhotse-speech/lhotse/blob/master/lhotse/dataset/speech_recognition.py
+# and here:
+# https://github.com/pytorch/audio/blob/main/examples/asr/librispeech_conformer_rnnt/transforms.py
+# https://pytorch.org/audio/stable/transforms.html
+
+
+# Dataloader:
+#   - load n long audios + alignments (each audio 200MB)
+#   - downsample each long audio to 16kHz
+#   - get n segments of roughly t seconds according to the alignments
 
 
 def _piecewise_linear_log(x):
@@ -174,99 +205,75 @@ def _extract_labels(sp_model, samples: List):
 
 
 def _extract_features(data_pipeline, samples: List, speed_perturbation=False, musan_noise=False):
+    # sample[0] is the waveform
+    # sample[1] is sample rate
+    # sample[2] is transcript
+    # sample[3] is audio_id
+    # sample[4] is start frame in the audio
+
     if speed_perturbation:
         samples = [_speed_perturb_transform(sample[0].squeeze()) for sample in samples]
 
-    if musan_noise:
+    if musan_noise:  # TODO: this add noise process may be changed to the same as in lhotse in the future
         total_length = sum([sample[0].size(-1) for sample in samples])
         _additive_noise_transform.fetch_noise_batch(total_length)
         samples = [_additive_noise_transform(sample[0].squeeze()) for sample in samples]
 
     # print(f"samples[0][0]={samples[0][0]}")
     # print(f"samples={samples}")
-    mel_features = [_spectrogram_transform(sample[0].squeeze()).transpose(1, 0) for sample in samples]
-    features = torch.nn.utils.rnn.pad_sequence(mel_features, batch_first=True)
+    
+    sample_rate = samples[0][1]  # all samples has been converted to the same sampling rate before this
+    features = [_fbank_transform(sample[0].squeeze(), sampling_rate=sample_rate) for sample in samples]
+    lengths = torch.tensor([elem.shape[0] for elem in features], dtype=torch.int32)
+    features = torch.nn.utils.rnn.pad_sequence(features, batch_first=True)
     features = data_pipeline(features)
-    lengths = torch.tensor([elem.shape[0] for elem in mel_features], dtype=torch.int32)
     return features, lengths
 
 
 class TrainTransform:
-    def __init__(self, global_stats_path: str, sp_model, config: dict):
+    def __init__(self, sp_model, config: dict):
         self.sp_model = sp_model
-
         self.config = config
-        if config["specaug_conf"]["new_spec_aug_api"]:
-            spec_aug_transform = T.SpecAugment(
-                n_time_masks=config["specaug_conf"]["n_time_masks"],
-                time_mask_param=config["specaug_conf"]["time_mask_param"],
-                p=config["specaug_conf"]["p"],
-                n_freq_masks=config["specaug_conf"]["n_freq_masks"],
-                freq_mask_param=config["specaug_conf"]["freq_mask_param"],
-                iid_masks=config["specaug_conf"]["iid_masks"],
-                zero_masking=config["specaug_conf"]["zero_masking"],
-            )
+        
+        if True:
             self.train_data_pipeline = torch.nn.Sequential(
-                FunctionalModule(_piecewise_linear_log),
-                GlobalStatsNormalization(global_stats_path),
-                FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
-                spec_aug_transform,
-                FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
-            )
-        else:
-            layers = []
-            layers.append(FunctionalModule(_piecewise_linear_log))
-            layers.append(GlobalStatsNormalization(global_stats_path))
-            layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
-            for _ in range(config["specaug_conf"]["n_freq_masks"]):
-                layers.append(
-                    torchaudio.transforms.FrequencyMasking(
-                        config["specaug_conf"]["freq_mask_param"]
-                    )
-                )
-            for _ in range(config["specaug_conf"]["n_time_masks"]):
-                layers.append(
-                    torchaudio.transforms.TimeMasking(
-                        config["specaug_conf"]["time_mask_param"], 
-                        p=config["specaug_conf"]["p"]
-                    )
-                )
-            layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
-            self.train_data_pipeline = torch.nn.Sequential(
-                *layers,
+                _spec_aug_transform,
             )
 
     def __call__(self, samples: List):
         features, feature_lengths = _extract_features(
             self.train_data_pipeline, 
             samples,
-            speed_perturbation=self.config["speed_perturbation"],
-            musan_noise=self.config["musan_noise"],
+            # speed_perturbation=self.config["speed_perturbation"],
+            # musan_noise=self.config["musan_noise"],
+            speed_perturbation=True,
+            musan_noise=True,
         )
 
         targets, target_lengths = _extract_labels(self.sp_model, samples)
-        return Batch(features, feature_lengths, targets, target_lengths, samples)
+        return features, feature_lengths, targets, target_lengths, samples
 
 
 class ValTransform:
-    def __init__(self, global_stats_path: str, sp_model):
+    def __init__(self, sp_model):
         self.sp_model = sp_model
-        self.valid_data_pipeline = torch.nn.Sequential(
-            FunctionalModule(_piecewise_linear_log),
-            GlobalStatsNormalization(global_stats_path),
-        )
+        self.valid_data_pipeline = torch.nn.Sequential()
+        # self.valid_data_pipeline = torch.nn.Sequential(
+        #     FunctionalModule(_piecewise_linear_log),
+        #     GlobalStatsNormalization(global_stats_path),
+        # )
 
     def __call__(self, samples: List):
         features, feature_lengths = _extract_features(self.valid_data_pipeline, samples)
         targets, target_lengths = _extract_labels(self.sp_model, samples)
-        return Batch(features, feature_lengths, targets, target_lengths, samples)
+        return features, feature_lengths, targets, target_lengths, samples
 
 
 class TestTransform:
-    def __init__(self, global_stats_path: str, sp_model):
-        self.val_transforms = ValTransform(global_stats_path, sp_model)
+    def __init__(self, sp_model):
+        self.val_transforms = ValTransform(sp_model)
 
-    def __call__(self, sample):
+    def __call__(self, sample: List):
         # return self.val_transforms([sample]), [sample]
         # return self.val_transforms(sample), sample
         return self.val_transforms(sample)
