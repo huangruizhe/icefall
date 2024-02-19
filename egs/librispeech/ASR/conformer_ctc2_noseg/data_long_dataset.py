@@ -23,7 +23,7 @@ class EarningsCallLongAudioDataset(Dataset):
         root: Union[str, Path],
         audio_type: str = "mp3",
     ) -> None:
-        self.root = [root]
+        self.root = root
 
         self.audio_files = glob.glob(f"{root}/**/*.{audio_type}", recursive=False)
         if len(self.audio_files) == 0:
@@ -87,11 +87,11 @@ class LibrispeechLongAudioDataset(Dataset):
         root: Union[str, Path],
         audio_type: str = "mp3",
     ) -> None:
-        self.root = [root]
+        self.root = root
 
-        self.audio_files = glob.glob(f"{root}/**/*.{audio_type}", recursive=False)
-        if len(self.audio_files) == 0:
-            self.audio_files = glob.glob(f"{root}/*.{audio_type}", recursive=False)
+        manifest_file = f"{root}/LibriSpeechOriginal/chapter_manifest.txt"
+        with open(manifest_file) as fin:
+            self.manifest = [l.strip().split("\t") for l in fin.readlines() if l.strip() > 0]
 
     def __getitem__(self, n: int): #  -> Tuple[Tensor, int, str, int, int]:
         """Load the n-th sample from the dataset.
@@ -132,7 +132,7 @@ class LibrispeechLongAudioDataset(Dataset):
         return waveform, sample_rate, text, speaker_id, audio_id, audio_path
 
     def __len__(self) -> int:
-        return len(self.audio_files)
+        return len(self.manifest)
 
 
 if __name__ == "__main__":
