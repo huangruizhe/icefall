@@ -9,6 +9,8 @@ from torch.utils.data import Dataset
 import torchaudio
 
 from lhotse import CutSet
+from data_libri_pre_filter import pre_filter
+
 
 # References:
 # https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
@@ -93,7 +95,41 @@ class LibrispeechLongAudioDataset(Dataset):
         with open(manifest_file) as fin:
             self.manifest = [l.strip().split("\t") for l in fin.readlines() if l.strip() > 0]
 
-    def __getitem__(self, n: int): #  -> Tuple[Tensor, int, str, int, int]:
+    def text_normalize(self, text: str) -> str:
+        # We preserve the word index in the transcript (i.e, we don't remove words)
+        # E.g., "hello 这 world" -> "hello * world"
+
+        # [Ref] https://github.com/kaldi-asr/kaldi/blob/master/egs/librispeech/s5/local/lm/normalize_text.sh
+        text = text.split()
+
+        def text_normalize0(text: str) -> str:
+            # Remove all punctuation
+            text = text.translate(str.maketrans("", "", string.punctuation))
+            # Convert all upper case to lower case
+            text = text.upper()
+            if len(text) == 0:
+                return "*"
+            return text
+        
+        text = [text_normalize0(w) for w in text]
+        text = " ".join(text)
+        return text
+
+    def load_book(self, filename):
+        # TODO: this can be done off-line
+
+        with open(filename, 'r') as fin:
+            lines = [l.strip() for l in fin]
+        
+        lines = pre_filter(lines)
+        lines = [l for l in lines if len(l) > 0]
+        lines = [self.text_normalize(l) for l in lines]
+
+        book = " ".join(lines)
+        return book
+
+
+    def __getitem__(self, n: int):  # -> Tuple[Tensor, int, str, int, int, dict]:
         """Load the n-th sample from the dataset.
 
         Args:
@@ -112,17 +148,16 @@ class LibrispeechLongAudioDataset(Dataset):
                 Speaker ID
             int:
                 Utterance ID
+            dict:
+                Other metadata
         """
-        audio_path = self.audio_files[n]
-        trans_path_func = lambda x: x.replace("/audio", "/trans")[:-4] + ".txt"
-        trans_path = trans_path_func(audio_path)
+        audio_path, text_path = self.manifest[n]
 
-        audio_id = Path(audio_path).stem
-        speaker_id, segment_id = 0, 0
+        chapter_id = Path(audio_path).parent.stem
+        speaker_id = Path(audio_path).parent.parent.stem
+        book_id = Path(text_path).parent.stem
 
-        with open(trans_path) as fin:
-            text = fin.readlines()
-        text = text[0].strip()
+        text = self.load_book(text_path)
 
         try:
             waveform, sample_rate = torchaudio.load(audio_path)
@@ -133,6 +168,10 @@ class LibrispeechLongAudioDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.manifest)
+
+
+class TedliumLongAudioDataset(Dataset):
+    pass
 
 
 if __name__ == "__main__":
