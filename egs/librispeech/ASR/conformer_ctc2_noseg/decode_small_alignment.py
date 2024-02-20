@@ -369,11 +369,29 @@ def get_str_by_range(book, rgs):
 
 
 def align_one_batch(
-    batch: dict,
+    batch_features: torch.Tensor,
+    text,
+    y_long,
+    segment_lengths,
     params: AttributeDict,
     model: nn.Module,
     sp: Optional[spm.SentencePieceProcessor],
 ):  # -> Dict[str, List[Tuple[str, List[str], List[str]]]]:
+    
+    actual_batch_size = batch_features.size(0)
+    batch = {
+        "supervisions": {
+            "text": text,
+            "cut": None,
+            "sequence_idx": torch.arange(actual_batch_size),
+            "start_frame": torch.zeros(actual_batch_size),
+            "num_frames": torch.Tensor(segment_lengths).int(),
+        },
+        "inputs": batch_features,
+        "y_long": y_long,
+    }
+
+
     device = model.device if isinstance(model, DDP) else next(model.parameters()).device
     
     feature = batch["inputs"]
@@ -410,9 +428,7 @@ def align_one_batch(
         # rs_texts = get_str_by_range(book, token_ids_indices)
         token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
     
-    key = "alignment-with-long-text"
-    rs = token_ids_indices
-    return {key: rs}
+    return token_ids_indices
 
 
 def post_process():
@@ -440,7 +456,7 @@ def align_dataset(
     frame_subsampling_rate = params.subsampling_factor
     word_start_symbols = {i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}
 
-    max_duration = 1200  # seconds
+    max_duration = params.max_duration  # seconds
     batch_size = int(max_duration/segment_size)
 
     segment_size = int(segment_size / frame_rate)
@@ -455,6 +471,21 @@ def align_dataset(
         waveform, sample_rate, text, speaker_id, chapter_id, meta_data = batch
         waveform = waveform.squeeze()
         text = text[0]
+
+        # if "2961/960/960" in meta_data["audio_path"][0]:
+        #     breakpoint()
+
+        logging.info(f"Processing: [{batch_idx}] {meta_data['audio_path']}")
+
+        audio_path = meta_data["audio_path"][0]
+        # pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "LibriSpeechAligned/LibriSpeech/").replace("/books/", "/ali/")
+        # pt_path = f"{dl.dataset.root}/{pt_path}"
+        pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", "ali/")
+        pt_path = f"{params.exp_dir}/ali/{pt_path}"
+        pt_path = Path(pt_path).parent / (Path(pt_path).parent.stem + ".pt")
+        if pt_path.exists():
+            logging.info(f"Skip: {pt_path}")
+            continue
 
         # Step (0): get the factor transducer for the long text
         y_long = make_factor_transducer4_skip(
@@ -480,66 +511,78 @@ def align_dataset(
 
         # Step (3): cut the long audio features into overlapping segments
         padding_size = (segment_size - (features.size(1) % segment_size)) % segment_size
+        
         features_padded = torch.nn.functional.pad(features, (0, 0, 0, padding_size))  # Pad the tensor with zeros
         features_padded = features_padded.unfold(dimension=1, size=segment_size, step=step)
         features_padded = features_padded.permute(0, 1, 3, 2)
         # features_padded is of shape (N, L, segment_size, D), where L is the number of segments.
-        segment_lengths = [segment_size] * features_padded.size(1)
-        segment_lengths[-1] -= padding_size
-
         features_padded = features_padded[0]  # (L, segment_size, D)
+        
+        segment_lengths = [segment_size] * features_padded.size(0)
+        segment_lengths[-1] -= padding_size
+        segment_lengths = torch.tensor(segment_lengths)
+
+        output_segment_lengths = torch.div(segment_lengths, params.subsampling_factor, rounding_mode="floor").int()
+        output_frame_offset = torch.arange(0, segment_lengths.size(0) * step, step)
+        output_frame_offset = torch.div(output_frame_offset, params.subsampling_factor, rounding_mode="floor").int()
+
         assert len(segment_lengths) == features_padded.size(0)
+        assert len(segment_lengths) == len(output_frame_offset)
+
+        # Discard the last chunk if it is too short
+        if segment_lengths[-1] < 20:  # which is 5 frames or 0.2 secs
+            features_padded = features_padded[:-1]
+            segment_lengths = segment_lengths[:-1]
+            output_segment_lengths = output_segment_lengths[:-1]
+            output_frame_offset = output_frame_offset[:-1]
 
         # Step (4): do alignment for batches
-        results = defaultdict(list)
+        results = list()
         for i in range(0, features_padded.size(0), batch_size):
             batch_features = features_padded[i: i+batch_size]
-            actual_batch_size = batch_features.size(0)
-            batch = {
-                "supervisions": {
-                    "text": text,
-                    "cut": None,
-                    "sequence_idx": torch.arange(actual_batch_size),
-                    "start_frame": torch.zeros(actual_batch_size),
-                    "num_frames": torch.Tensor(segment_lengths[i: i+batch_size]).int(),
-                },
-                "inputs": batch_features,
-                "y_long": y_long,
-            }
+            batch_segment_lengths = segment_lengths[i: i+batch_size]
 
-            hyps_dict = align_one_batch(batch, params, model, sp)
-            
-            k = "alignment-with-long-text"
-            results[k].extend(hyps_dict[k])  # TODO
+            try:
+                rs = align_one_batch(batch_features, text, y_long, batch_segment_lengths, params, model, sp)
+                results.extend(rs)
+            # except torch.cuda.CudaError as e:
+            except Exception as e:
+                import traceback
+                logging.error(f"Exception occurred: {e}")
+                traceback.print_exc()
+
+                actual_batch_size = batch_features.size(0)
+                half_size = actual_batch_size // 2 + 1
+
+                rs = align_one_batch(batch_features[:half_size], text, y_long, batch_segment_lengths[:half_size], params, model, sp)
+                results.extend(rs)
+
+                rs = align_one_batch(batch_features[half_size:], text, y_long, batch_segment_lengths[half_size:], params, model, sp)
+                results.extend(rs)
         
         # Step (5): post-process the alignment for each audio, save results
-        segment_lengths = torch.tensor(segment_lengths)
-        output_segment_lengths = torch.div(segment_lengths, params.subsampling_factor, rounding_mode="floor").int()
-        output_segment_lengths[0] = 0
-        batch_offsets = torch.div(torch.arange(0, output_segment_lengths.size(0)*overlap, overlap), params.subsampling_factor, rounding_mode="floor").int()
-        output_frame_offset = torch.cumsum(output_segment_lengths, dim=0) - batch_offsets
-        output_frame_offset = output_frame_offset.tolist()
-        assert len(output_frame_offset) == len(results[k])
+        
+        # segment_lengths = torch.tensor(segment_lengths)
+        # output_segment_lengths = torch.div(segment_lengths, params.subsampling_factor, rounding_mode="floor").int()
+        # output_segment_lengths[0] = 0
+        # batch_offsets = torch.div(torch.arange(0, output_segment_lengths.size(0)*overlap, overlap), params.subsampling_factor, rounding_mode="floor").int()
+        # output_frame_offset = torch.cumsum(output_segment_lengths, dim=0) - batch_offsets
+        # output_frame_offset = output_frame_offset.tolist()
+        # assert len(output_frame_offset) == len(results[k])
 
         # Save temporary results
         save_rs = {
             "meta_data": meta_data,
-            "results[k]": results[k],
+            "results[k]": results,
             "output_frame_offset": output_frame_offset,
         }
-        audio_path = meta_data["audio_path"][0]
-        # pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "LibriSpeechAligned/LibriSpeech/").replace("/books/", "/ali/")
-        # pt_path = f"{dl.dataset.root}/{pt_path}"
-        pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", "ali/")
-        pt_path = f"{params.exp_dir}/ali/{pt_path}"
-        pt_path = Path(pt_path).parent / (Path(pt_path).parent.stem + ".pt")
         Path(pt_path).parent.mkdir(parents=True, exist_ok=True)
         torch.save(save_rs, pt_path)
         logging.info(f"Saved: {pt_path}")
 
-        if batch_idx % 5 == 0:
-            batch_str = f"{batch_idx}/{len(dl)}"
-            logging.info(f"batch {batch_str}")
+        # if batch_idx % 5 == 0:
+        #     batch_str = f"{batch_idx}/{len(dl)}"
+        #     logging.info(f"batch {batch_str}")
         
         # logging.info(f"batch_idx={batch_idx}")
         # if batch_idx > 200:
@@ -730,10 +773,10 @@ def run(rank, world_size, args):
     dataloader = DataLoader(
         long_dataset, 
         batch_size=1,
-        shuffle=False, 
-        num_workers=0,
+        shuffle=True,
+        num_workers=4,
         sampler=sampler,
-        # prefetch_factor=2,
+        prefetch_factor=3,
     )
 
     test_sets = ["libri_long"]
