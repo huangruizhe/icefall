@@ -120,7 +120,9 @@ class LibrispeechLongAudioDataset(Dataset):
 
         def text_normalize0(text: str) -> str:
             # Remove all punctuation
-            text = text.translate(str.maketrans("", "", string.punctuation))
+            # punctuation = string.punctuation
+            punctuation = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~'  # keep "'" as in Librispeech (how about "-"? -- ok, I don't find '-' in the per_utt file. So not allowed)
+            text = text.translate(str.maketrans("", "", punctuation))
             # Convert all upper case to lower case
             text = text.upper()
             if len(text) == 0:

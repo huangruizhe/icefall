@@ -765,6 +765,9 @@ def run(rank, world_size, args):
 
     long_dataset = LibrispeechLongAudioDataset(
         root = "/exp/rhuang/meta/icefall/egs/librispeech/ASR/download/",
+        # skip_loading_audio = False,
+        # skip_text_normalization = True,
+        # manifest_file = None,
     )
     # waveform, sample_rate, text, speaker_id, audio_id, meta_data = \
     #     long_dataset[0]    
