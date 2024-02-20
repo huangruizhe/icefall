@@ -272,6 +272,13 @@ def get_parser():
         help="Whether to use half precision training.",
     )
 
+    parser.add_argument(
+        "--subset",
+        type=int,
+        default=35,
+        help="the number of hours of a librispeech subset",
+    )
+
     return parser
 
 
@@ -863,6 +870,8 @@ def run(rank, world_size, args):
     if params.print_diagnostics:
         diagnostic = diagnostics.attach_diagnostics(model)
 
+    if params.subset == 1:  # do more data augmentation for the very small training data
+        args.on_the_fly_feats = True
     librispeech = LibriSpeechAsrDataModule(args)
 
     if params.full_libri:
@@ -898,12 +907,17 @@ def run(rank, world_size, args):
 
     # Get a seed model on small data
     import lhotse
-    train_cuts = lhotse.load_manifest_lazy("data/fbank/librispeech_cuts_train-clean-100-35h.jsonl.gz")
+    small_cuts_path = f"data/fbank/librispeech_cuts_train-clean-100-{params.subset}h.jsonl.gz"
+    logging.info(f"Loading cuts from: {small_cuts_path}")
+    train_cuts = lhotse.load_manifest_lazy(small_cuts_path)
     train_cuts = train_cuts.to_eager()
     if rank == 0:
         train_cuts.describe()
     logging.info("Multiply train_cut ...")
     train_cuts = train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts + train_cuts
+    if params.subset == 1:
+        train_cuts = train_cuts + train_cuts
+        train_cuts = train_cuts.drop_features()
     import random
     import string
     custom_characters = string.ascii_letters + string.digits

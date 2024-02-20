@@ -100,6 +100,7 @@ fi
 ##################################################
 # Get a seed model first on a small subset
 ##################################################
+
 # python -c """
 # import lhotse
 # cs = lhotse.load_manifest('data/fbank/librispeech_cuts_train-clean-100.jsonl.gz')
@@ -108,6 +109,46 @@ fi
 # cs.describe()
 # cs.to_file('data/fbank/librispeech_cuts_train-clean-100-35h.jsonl.gz')
 # """
+
+# python -c """
+# import lhotse
+# cs = lhotse.load_manifest('data/fbank/librispeech_cuts_train-clean-100.jsonl.gz')
+# cs = cs.to_eager()
+# cs_small = cs.sample(n_cuts=10000)
+# cs_102518 = cs.filter(lambda c: c.id.split('-')[1] == '102518')
+# cs_19218 = cs.filter(lambda c: c.id.split('-')[1] == '19218')
+# cs_small = cs_102518 + cs_19218
+# cs_small.describe()
+# cs_small.to_file('data/fbank/librispeech_cuts_train-clean-100-1h.jsonl.gz')
+# """
+
+# python -c """
+# import lhotse
+# cs = lhotse.load_manifest('data/fbank/librispeech_cuts_train-clean-100.jsonl.gz')
+# cs = cs.to_eager()
+# cs_small = cs.sample(n_cuts=580)
+# cs_small.describe()
+# cs_small.to_file('data/fbank/librispeech_cuts_train-clean-100-2h.jsonl.gz')
+# """
+
+# python -c """
+# import lhotse
+# cs = lhotse.load_manifest('data/fbank/librispeech_cuts_train-clean-100.jsonl.gz')
+# cs = cs.to_eager()
+# cs_small = cs.sample(n_cuts=1400)
+# cs_small.describe()
+# cs_small.to_file('data/fbank/librispeech_cuts_train-clean-100-5h.jsonl.gz')
+# """
+
+# python -c """
+# import lhotse
+# cs = lhotse.load_manifest('data/fbank/librispeech_cuts_train-clean-100.jsonl.gz')
+# cs = cs.to_eager()
+# cs_small = cs.sample(n_cuts=2815)
+# cs_small.describe()
+# cs_small.to_file('data/fbank/librispeech_cuts_train-clean-100-10h.jsonl.gz')
+# """
+
 if false; then
     exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed
     ./conformer_ctc2_noseg/train_seed.py \
@@ -160,7 +201,11 @@ fi
 # Number of model parameters: 9929502
 
 if false; then
-    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model  # 35h
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model2 # 10h
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model3 # 1h
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model4 # 2h
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model5 # 5h
     ./conformer_ctc2_noseg/train_seed_small.py \
       --exp-dir $exp_dir \
       --lang-dir data/lang_bpe_500 \
@@ -172,7 +217,15 @@ if false; then
       --bucketing-sampler 1 \
       --start-epoch 1 \
       --num-epochs 30 \
-      --att-rate 0
+      --att-rate 0  # --subset 10
+    
+    # 1h
+    # ml load sox/14.4.2
+    # :%s/\/export\/fs04\/a12\/rhuang\/icefall_align2\/egs\/librispeech\/ASR\/download/\/exp\/rhuang\/librispeech\/download2/g
+    # ./conformer_ctc2_noseg/train_seed_small.py       --exp-dir $exp_dir       --lang-dir data/lang_bpe_500       --full-libri 0       --num-decoder-layers 0       --max-duration 40       --concatenate-cuts 0       --world-size 2       --bucketing-sampler 1       --start-epoch 1       --num-epochs 30       --att-rate 0 --subset 1
+
+    # 10h
+    # ./conformer_ctc2_noseg/train_seed_small.py       --exp-dir $exp_dir       --lang-dir data/lang_bpe_500       --full-libri 0       --num-decoder-layers 0       --max-duration 80       --concatenate-cuts 0       --world-size 2       --bucketing-sampler 1       --start-epoch 1       --num-epochs 30       --att-rate 0 --subset 10 --master-port 12358
     
     for method in ctc-greedy-search ctc-decoding 1best nbest-oracle; do
       python3 ./conformer_ctc2_noseg/decode_small.py \
