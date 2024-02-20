@@ -450,7 +450,6 @@ def align_dataset(
     # Note:
     # 1) if the beginning of the audio is not in the text, the audio will get poor alignment
 
-    results = defaultdict(list)
     for batch_idx, batch in enumerate(dl):
         # Each batch contains a single long audio and its long text
         waveform, sample_rate, text, speaker_id, chapter_id, meta_data = batch
@@ -492,6 +491,7 @@ def align_dataset(
         assert len(segment_lengths) == features_padded.size(0)
 
         # Step (4): do alignment for batches
+        results = defaultdict(list)
         for i in range(0, features_padded.size(0), batch_size):
             batch_features = features_padded[i: i+batch_size]
             actual_batch_size = batch_features.size(0)
@@ -513,15 +513,38 @@ def align_dataset(
             results[k].extend(hyps_dict[k])  # TODO
         
         # Step (5): post-process the alignment for each audio, save results
+        segment_lengths = torch.tensor(segment_lengths)
+        output_segment_lengths = torch.div(segment_lengths, params.subsampling_factor, rounding_mode="floor").int()
+        output_segment_lengths[0] = 0
+        batch_offsets = torch.div(torch.arange(0, output_segment_lengths.size(0)*overlap, overlap), params.subsampling_factor, rounding_mode="floor").int()
+        output_frame_offset = torch.cumsum(output_segment_lengths, dim=0) - batch_offsets
+        output_frame_offset = output_frame_offset.tolist()
+        assert len(output_frame_offset) == len(results[k])
 
-        if batch_idx % 10 == 0:
+        # Save temporary results
+        save_rs = {
+            "meta_data": meta_data,
+            "results[k]": results[k],
+            "output_frame_offset": output_frame_offset,
+        }
+        audio_path = meta_data["audio_path"][0]
+        # pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "LibriSpeechAligned/LibriSpeech/").replace("/books/", "/ali/")
+        # pt_path = f"{dl.dataset.root}/{pt_path}"
+        pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", "ali/")
+        pt_path = f"{params.exp_dir}/ali/{pt_path}"
+        pt_path = Path(pt_path).parent / (Path(pt_path).parent.stem + ".pt")
+        Path(pt_path).parent.mkdir(parents=True, exist_ok=True)
+        torch.save(save_rs, pt_path)
+        logging.info(f"Saved: {pt_path}")
+
+        if batch_idx % 5 == 0:
             batch_str = f"{batch_idx}/{len(dl)}"
             logging.info(f"batch {batch_str}")
         
         # logging.info(f"batch_idx={batch_idx}")
         # if batch_idx > 200:
         #     break
-    return results
+    return
 
 
 
@@ -585,8 +608,7 @@ def run(rank, world_size, args):
 
     device = torch.device("cpu")
     if torch.cuda.is_available():
-        device = torch.device("cuda", 0)
-
+        device = torch.device("cuda", rank)
     logging.info(f"Device: {device}")
 
     sp = spm.SentencePieceProcessor()
@@ -718,15 +740,13 @@ def run(rank, world_size, args):
     test_dls = [dataloader]
 
     for test_set, test_dl in zip(test_sets, test_dls):
-        results_dict = align_dataset(
+        align_dataset(
             dl=test_dl,
             params=params,
             model=model,
             sp=sp,
             rank=rank,
         )
-
-        save_results(params=params, test_set_name=test_set, results_dict=results_dict)
 
     logging.info("Done!")
 
