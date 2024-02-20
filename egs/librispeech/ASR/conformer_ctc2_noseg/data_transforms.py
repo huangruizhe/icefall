@@ -88,10 +88,10 @@ class AddNoise(torch.nn.Module):
 # https://github.com/lhotse-speech/lhotse/blob/master/lhotse/cut/base.py#L289
 # https://github.com/lhotse-speech/lhotse/blob/master/lhotse/cut/base.py#L95C13-L95C37
 class LhotseFbank(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, target_sample_rate=16000):
         super().__init__()
 
-        self.target_sample_rate = 16000
+        self.target_sample_rate = target_sample_rate
         self.extractor = Fbank()  # It's 16kHz. https://github.com/lhotse-speech/lhotse/blob/master/lhotse/features/kaldi/extractors.py#L24
         # self.extractor = Fbank(FbankConfig(num_mel_bins=num_mel_bins))  # https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/local/compute_fbank_librispeech.py#L119
     

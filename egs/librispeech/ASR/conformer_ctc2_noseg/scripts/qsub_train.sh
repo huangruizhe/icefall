@@ -214,6 +214,21 @@ fi
 
 
 ##################################################
+# Get weak alignment
+##################################################
+
+if false; then
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model
+
+    python3 ./conformer_ctc2_noseg/decode_small_alignment.py \
+        --num-decoder-layers 0 \
+        --exp-dir $exp_dir \
+        --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000 \
+        --world-size 1
+fi
+
+
+##################################################
 # Train with train_concat_libri
 ##################################################
 

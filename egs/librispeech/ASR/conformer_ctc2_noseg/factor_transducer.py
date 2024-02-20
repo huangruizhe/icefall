@@ -319,7 +319,7 @@ def make_factor_transducer4_bigram(word_id_list, word_start_symbols, return_str=
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
 
-def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=False, blank_penalty=0, skip_penalty=-0.5):
+def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=False, blank_penalty=0, skip_penalty=-0.5, return_penalty=None):
     # This is a modification of make_factor_transducer4, but we allow skip arcs instead of a factor transducer
     # `skip_penalty` is good for breaking ties: it prefers the shorter path without skips
 
@@ -360,6 +360,9 @@ def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=Fa
 
     arcs += [(n, final_state, self_loops[n], word_start_ids[n_next], 0) for n, n_next in word_end]
     arcs += [(n, final_state, 0, word_start_ids[n_next], 0) for n, n_next in word_end]
+
+    if return_penalty is not None:
+        arcs += [(n, 0, 0, 0, return_penalty) for n, n_next in word_end]
 
     # skip arcs
     # arcs += [(n, next_token, self_loops[next_token], 0, 0) for ns, next_token in zip(eps_arcs1, token_starts[2:]) for n in ns]

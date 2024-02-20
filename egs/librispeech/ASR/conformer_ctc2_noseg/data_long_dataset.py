@@ -12,6 +12,9 @@ import torchaudio
 from lhotse import CutSet
 from data_libri_pre_filter import pre_filter
 
+import codecs
+from unidecode import unidecode
+
 
 # References:
 # https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
@@ -93,10 +96,18 @@ class LibrispeechLongAudioDataset(Dataset):
     def __init__(
         self,
         root: Union[str, Path],
+        skip_loading_audio=False,
+        skip_text_normalization=True,
+        manifest_file=None,
     ) -> None:
         self.root = root
 
-        manifest_file = f"{root}/LibriSpeechOriginal/chapter_manifest.txt"
+        self.skip_loading_audio = skip_loading_audio
+        self.skip_text_normalization = skip_text_normalization
+
+        if manifest_file is None:
+            manifest_file = f"{root}/LibriSpeechAligned/chapter_manifest.txt"
+            # manifest_file = f"{root}/LibriSpeechOriginal/chapter_manifest.txt"
         with open(manifest_file) as fin:
             self.manifest = [l.strip().split("\t") for l in fin.readlines() if len(l.strip()) > 0]
 
@@ -123,14 +134,24 @@ class LibrispeechLongAudioDataset(Dataset):
     def load_book(self, filename):
         # TODO: this can be done off-line
 
-        with open(filename, 'r') as fin:
-            lines = [l.strip() for l in fin]
-        
-        lines = pre_filter(lines)
-        lines = [l for l in lines if len(l) > 0]
-        lines = [self.text_normalize(l) for l in lines]
+        try:
+            with open(filename, 'r') as fin:
+                lines = [l.strip() for l in fin]
+        except UnicodeDecodeError:
+            try:
+                with open(filename, 'r', encoding='latin-1') as fin:
+                    lines = [unidecode(l.strip()) for l in fin]
+            except UnicodeDecodeError:
+                with codecs.open(filename, 'r', encoding='utf-8') as fin:
+                    lines = [unidecode(l.strip()) for l in fin.readlines()]
+
+        if not self.skip_text_normalization:
+            lines = pre_filter(lines)
+            lines = [l for l in lines if len(l) > 0]
+            lines = [self.text_normalize(l) for l in lines]
 
         book = " ".join(lines)
+        book = book.strip()
         return book
 
 
@@ -162,12 +183,18 @@ class LibrispeechLongAudioDataset(Dataset):
         speaker_id = Path(audio_path).parent.parent.stem
         book_id = Path(text_path).parent.stem
 
-        text = self.load_book(f"{self.root}/{text_path}")
-
         try:
-            waveform, sample_rate = torchaudio.load(f"{self.root}/{audio_path}")
+            text = self.load_book(f"{self.root}/{text_path}")
         except:  # in case of broken file
+            text = None
+
+        if self.skip_loading_audio:
             waveform, sample_rate = [], -1
+        else:
+            try:
+                waveform, sample_rate = torchaudio.load(f"{self.root}/{audio_path}")
+            except:  # in case of broken file
+                waveform, sample_rate = [], -1
         
         meta_data = {
             "book_id": book_id,

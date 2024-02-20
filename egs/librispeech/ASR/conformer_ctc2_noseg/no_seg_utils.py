@@ -144,8 +144,11 @@ def get_lattice(params, ctc_output, batch, sp, decoding_graph=None):
     supervision_segments = supervision_segments[indices]
 
     if isinstance(decoding_graph, list):
-        decoding_graph = [decoding_graph[i] for i in indices.tolist()]
-        decoding_graph = k2.create_fsa_vec(decoding_graph)
+        if len(decoding_graph) > 1:
+            decoding_graph = [decoding_graph[i] for i in indices.tolist()]
+            decoding_graph = k2.create_fsa_vec(decoding_graph)
+        else:
+            decoding_graph = decoding_graph[0]
         decoding_graph = k2.arc_sort(decoding_graph)
         decoding_graph = decoding_graph.to(ctc_output.device)
 
@@ -218,9 +221,9 @@ def get_batch_wer(params, ctc_output, batch, sp, decoding_graph=None, best_paths
     return wer
 
 
-def handle_emtpy_texts(token_ids_indices):
+def handle_emtpy_texts(token_ids_indices, rg=[0, 1]):
     # Just use [0, 1] for every empty decoding result
-    new_token_ids_indices = [tkid if len(tkid) > 0 else [0, 1] for tkid in token_ids_indices]
+    new_token_ids_indices = [tkid if len(tkid) > 0 else rg for tkid in token_ids_indices]
     is_empty_best_path = [False if len(tkid) > 0 else True for tkid in token_ids_indices]
     return new_token_ids_indices, is_empty_best_path
 
