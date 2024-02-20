@@ -428,7 +428,7 @@ def align_one_batch(
         # rs_texts = get_str_by_range(book, token_ids_indices)
         token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
     
-    return token_ids_indices
+    return token_ids_indices, timestamps
 
 
 def post_process():
@@ -481,7 +481,7 @@ def align_dataset(
         # pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "LibriSpeechAligned/LibriSpeech/").replace("/books/", "/ali/")
         # pt_path = f"{dl.dataset.root}/{pt_path}"
         pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", "ali/")
-        pt_path = f"{params.exp_dir}/ali/{pt_path}"
+        pt_path = f"{params.exp_dir}/{pt_path}"
         pt_path = Path(pt_path).parent / (Path(pt_path).parent.stem + ".pt")
         if pt_path.exists():
             logging.info(f"Skip: {pt_path}")
@@ -537,14 +537,16 @@ def align_dataset(
             output_frame_offset = output_frame_offset[:-1]
 
         # Step (4): do alignment for batches
-        results = list()
+        results_hyps = list()
+        results_timestamps = list()
         for i in range(0, features_padded.size(0), batch_size):
             batch_features = features_padded[i: i+batch_size]
             batch_segment_lengths = segment_lengths[i: i+batch_size]
 
             try:
-                rs = align_one_batch(batch_features, text, y_long, batch_segment_lengths, params, model, sp)
-                results.extend(rs)
+                hyps, timestamps = align_one_batch(batch_features, text, y_long, batch_segment_lengths, params, model, sp)
+                results_hyps.extend(hyps)
+                results_timestamps.extend(timestamps)
             # except torch.cuda.CudaError as e:
             except Exception as e:
                 import traceback
@@ -554,11 +556,13 @@ def align_dataset(
                 actual_batch_size = batch_features.size(0)
                 half_size = actual_batch_size // 2 + 1
 
-                rs = align_one_batch(batch_features[:half_size], text, y_long, batch_segment_lengths[:half_size], params, model, sp)
-                results.extend(rs)
+                hyps, timestamps = align_one_batch(batch_features[:half_size], text, y_long, batch_segment_lengths[:half_size], params, model, sp)
+                results_hyps.extend(hyps)
+                results_timestamps.extend(timestamps)
 
-                rs = align_one_batch(batch_features[half_size:], text, y_long, batch_segment_lengths[half_size:], params, model, sp)
-                results.extend(rs)
+                hyps, timestamps = align_one_batch(batch_features[half_size:], text, y_long, batch_segment_lengths[half_size:], params, model, sp)
+                results_hyps.extend(hyps)
+                results_timestamps.extend(timestamps)
         
         # Step (5): post-process the alignment for each audio, save results
         
@@ -573,7 +577,8 @@ def align_dataset(
         # Save temporary results
         save_rs = {
             "meta_data": meta_data,
-            "results[k]": results,
+            "hyps": results_hyps,
+            "timestamps": results_timestamps,
             "output_frame_offset": output_frame_offset,
         }
         Path(pt_path).parent.mkdir(parents=True, exist_ok=True)
