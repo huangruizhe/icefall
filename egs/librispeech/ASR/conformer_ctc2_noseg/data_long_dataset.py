@@ -211,6 +211,10 @@ class LibrispeechLongAudioDataset(Dataset):
     def __len__(self) -> int:
         return len(self.manifest)
 
+    def filter(self, filter_fn=lambda audio_path, text_path: True):
+        new_manifest = [[audio_path, text_path] for audio_path, text_path in self.manifest if filter_fn(audio_path, text_path)]
+        self.manifest = new_manifest
+
 
 class TedliumLongAudioDataset(Dataset):
     pass

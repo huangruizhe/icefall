@@ -286,6 +286,13 @@ def get_parser():
         help="Master port to use for DDP training.",
     )
 
+    parser.add_argument(
+        "--part",
+        type=str,
+        default=None,
+        help="The seed for random generators intended for reproducibility",
+    )
+
     return parser
 
 
@@ -475,7 +482,12 @@ def align_dataset(
         # if "2961/960/960" in meta_data["audio_path"][0]:
         #     breakpoint()
 
-        logging.info(f"Processing: [{batch_idx}] {meta_data['audio_path']}")
+        bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259"}
+        if chapter_id in bad_chapters:
+            logging.info(f"Skip problematic: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
+            continue
+
+        logging.info(f"Processing: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
 
         audio_path = meta_data["audio_path"][0]
         # pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "LibriSpeechAligned/LibriSpeech/").replace("/books/", "/ali/")
@@ -763,6 +775,10 @@ def run(rank, world_size, args):
     num_param = sum([p.numel() for p in model.parameters()])
     logging.info(f"Number of model parameters: {num_param}")
 
+    ########################################################
+    # Make dataset and dataloader
+    ########################################################
+
     long_dataset = LibrispeechLongAudioDataset(
         root = "/exp/rhuang/meta/icefall/egs/librispeech/ASR/download/",
         # skip_loading_audio = False,
@@ -772,6 +788,18 @@ def run(rank, world_size, args):
     # waveform, sample_rate, text, speaker_id, audio_id, meta_data = \
     #     long_dataset[0]    
     # print(f"[{audio_id}] len(text) = {len(text)}")
+
+    if params.part is not None:
+        params.part = params.part.split("/")
+        params.part = (int(params.part[0]), int(params.part[1]))
+        long_dataset.filter(lambda audio_path, text_path: int(audio_path.split("/")[-2]) % params.part[1] == params.part[0] % params.part[1])
+    
+    def filter_done(audio_path, text_path):
+        pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", "ali/")
+        pt_path = f"{params.exp_dir}/{pt_path}"
+        pt_path = Path(pt_path).parent / (Path(pt_path).parent.stem + ".pt")
+        return not pt_path.exists()
+    long_dataset.filter(filter_done)
     
     if world_size > 1:
         sampler = DistributedSampler(long_dataset)
@@ -789,6 +817,10 @@ def run(rank, world_size, args):
 
     test_sets = ["libri_long"]
     test_dls = [dataloader]
+
+    ########################################################
+    # Start alignment
+    ########################################################
 
     for test_set, test_dl in zip(test_sets, test_dls):
         align_dataset(
