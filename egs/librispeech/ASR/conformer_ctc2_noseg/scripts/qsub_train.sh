@@ -283,8 +283,9 @@ if false; then
 
     exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000         --world-size 4 --master-port 12356; exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model2; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 15 --avg 8 --max-duration 1000         --world-size 4 --master-port 12357
     exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model4; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 11 --avg 7 --max-duration 1000         --world-size 4 --master-port 12356; exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model5; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 11 --avg 7 --max-duration 1000         --world-size 4 --master-port 12357
+    # --seed 1383 --part 1/8
 
-    ls -1 /exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model/ali/ali/*/*/*.pt | wc -l
+    ls -1 /exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model/ali/*/*/*.pt | wc -l
 fi
 
 

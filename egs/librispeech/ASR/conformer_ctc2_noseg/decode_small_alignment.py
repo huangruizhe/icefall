@@ -482,8 +482,8 @@ def align_dataset(
         # if "2961/960/960" in meta_data["audio_path"][0]:
         #     breakpoint()
 
-        bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259"}
-        if chapter_id in bad_chapters:
+        bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259", "41260"}
+        if chapter_id[0] in bad_chapters:
             logging.info(f"Skip problematic: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
             continue
 
