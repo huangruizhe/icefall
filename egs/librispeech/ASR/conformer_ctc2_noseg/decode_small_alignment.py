@@ -293,6 +293,13 @@ def get_parser():
         help="The seed for random generators intended for reproducibility",
     )
 
+    parser.add_argument(
+        "--return-penalty",
+        type=int,
+        default=None,
+        help="",
+    )
+
     return parser
 
 
@@ -321,6 +328,10 @@ def get_params() -> AttributeDict:
             "output_beam": 8,
             "min_active_states": 30,
             "max_active_states": 10000,
+            # "search_beam": 15,  # For bad chapters
+            # "output_beam": 6,
+            # "min_active_states": 30,
+            # "max_active_states": 10000,
         }
     )
     return params
@@ -482,9 +493,11 @@ def align_dataset(
         # if "2961/960/960" in meta_data["audio_path"][0]:
         #     breakpoint()
 
+        # Skip them, which can cause OOM or other k2 errors
         bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259", "41260"}
+        # bad_chapters = {}
         if chapter_id[0] in bad_chapters:
-            logging.info(f"Skip problematic: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
+            logging.info(f"Skip bad chapter: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
             continue
 
         logging.info(f"Processing: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
@@ -492,7 +505,7 @@ def align_dataset(
         audio_path = meta_data["audio_path"][0]
         # pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "LibriSpeechAligned/LibriSpeech/").replace("/books/", "/ali/")
         # pt_path = f"{dl.dataset.root}/{pt_path}"
-        pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", "ali/")
+        pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", f"ali_{params.return_penalty}/")
         pt_path = f"{params.exp_dir}/{pt_path}"
         pt_path = Path(pt_path).parent / (Path(pt_path).parent.stem + ".pt")
         if pt_path.exists():
@@ -505,7 +518,8 @@ def align_dataset(
             word_start_symbols=word_start_symbols, 
             return_str=False,
             skip_penalty=-0.5,  # tie breaking and avoid long skips
-            return_penalty=-18.0,   # ok, now we allow return to the start states from word ends, but with big penalty (in the log domain; it seems -15~-20 is good)
+            # return_penalty=-18.0,   # ok, now we allow return to the start states from word ends, but with big penalty (in the log domain; it seems -15~-20 is good)
+            return_penalty=params.return_penalty,
             # return_penalty=None,    # no "return arc" is allowed
         )
         # y_long.shape, y_long.num_arcs
@@ -806,6 +820,9 @@ def run(rank, world_size, args):
     else:
         sampler = None
 
+    # We use a dataloader of batch_size=1 here, instead of just looping over the dataset,
+    # because we want to use the DataLoader's multi-threading and prefetching capabilities.
+    # It turns out that the DataLoader's prefetching is effective for loading long audios.
     dataloader = DataLoader(
         long_dataset, 
         batch_size=1,

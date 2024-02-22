@@ -265,6 +265,36 @@ if false; then
     # train-full 4.63% [1305687 / 28178989, 46629 ins, 1211074 del, 47984 sub ] / 4.44% [1252477 / 28178989, 59116 ins, 1120030 del, 73331 sub ]
     # test-clean 3.01% [1581 / 52576, 52 ins, 1451 del, 78 sub ] / 3.22% [1695 / 52576, 122 ins, 1409 del, 164 sub ]
     # test-other 3.78% [1979 / 52343, 308 ins, 1398 del, 273 sub ] / 3.26% [1705 / 52343, 306 ins, 1207 del, 192 sub ]
+
+    #########################
+    # *** NOTE ***: The above results may be problematic: they are before fixing the bug in the factor transducer.
+    #########################
+
+    # train/eval mode, --epoch 30 --avg 8, return_penalty=-18.0
+    # train-100  4.71% [138163 / 2935692, 115468 ins, 22589 del, 106 sub ] / 5.65% [165931 / 2935692, 144526 ins, 21358 del, 47 sub ]
+    # test-clean 2.12% [1113 / 52576, 884 ins, 225 del, 4 sub ] / 1.83% [961 / 52576, 658 ins, 298 del, 5 sub ]
+    # test-other 8.09% [4237 / 52343, 3570 ins, 618 del, 49 sub ] / 8.76% [4586 / 52343, 3860 ins, 695 del, 31 sub ]
+
+    # train/eval mode, --epoch 30 --avg 8, return_penalty=-38.0
+    # train-100  1.08% [31800 / 2935692, 10539 ins, 20186 del, 1075 sub ] / 1.97% [57867 / 2935692, 40052 ins, 16320 del, 1495 sub ]
+    # test-clean 0.43% [227 / 52576, 97 ins, 109 del, 21 sub ] / 0.67% [352 / 52576, 217 ins, 94 del, 41 sub ]
+    # test-other 1.09% [569 / 52343, 170 ins, 302 del, 97 sub ] / 1.44% [752 / 52343, 398 ins, 208 del, 146 sub ]
+
+    # train/eval mode, --epoch 30 --avg 8, return_penalty=-100.0
+    # train-100  0.80% [23512 / 2935692, 2047 ins, 19609 del, 1856 sub ] / 0.70% [20567 / 2935692, 2582 ins, 15284 del, 2701 sub ]
+    # test-clean 0.51% [270 / 52576, 102 ins, 67 del, 101 sub ] / 0.65% [342 / 52576, 141 ins, 37 del, 164 sub ]
+    # test-other 1.17% [613 / 52343, 131 ins, 343 del, 139 sub ] / 1.39% [726 / 52343, 322 ins, 208 del, 196 sub ]
+
+    # train/eval mode, --epoch 30 --avg 8, return_penalty=-1000.0
+    # train-100  0.80% [23593 / 2935692, 2117 ins, 19806 del, 1670 sub ] / 0.71% [20893 / 2935692, 2793 ins, 15309 del, 2791 sub ]
+    # test-clean 0.45% [235 / 52576, 109 ins, 63 del, 63 sub ] / 0.65% [342 / 52576, 141 ins, 37 del, 164 sub ]
+    # test-other 1.49% [779 / 52343, 306 ins, 279 del, 194 sub ] / 1.39% [726 / 52343, 322 ins, 208 del, 196 sub ]
+
+    # train/eval mode, --epoch 30 --avg 8, return_penalty=None
+    # train-100  0.78% [22981 / 2935692, 1956 ins, 19485 del, 1540 sub ] / 0.69% [20328 / 2935692, 2705 ins, 14933 del, 2690 sub ]
+    # test-clean 0.32% [166 / 52576, 47 ins, 51 del, 68 sub ] / 0.65% [342 / 52576, 141 ins, 37 del, 164 sub ]
+    # test-other 1.59% [830 / 52343, 287 ins, 276 del, 267 sub ] / 1.39% [726 / 52343, 322 ins, 208 del, 196 sub ]
+
 fi
 
 
@@ -274,18 +304,25 @@ fi
 
 if false; then
     exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model5
 
     python3 ./conformer_ctc2_noseg/decode_small_alignment.py \
         --num-decoder-layers 0 \
         --exp-dir $exp_dir \
         --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000 \
-        --world-size 1
+        --world-size 1 --return-penalty -100 --master-port 12357 --seed 1383 --part 1/4
+    # --master-port 12357 --seed 1383 --part 1/4
 
-    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000         --world-size 4 --master-port 12356; exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model2; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 15 --avg 8 --max-duration 1000         --world-size 4 --master-port 12357
-    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model4; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 11 --avg 7 --max-duration 1000         --world-size 4 --master-port 12356; exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model5; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 11 --avg 7 --max-duration 1000         --world-size 4 --master-port 12357
-    # --seed 1383 --part 1/8
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000         --world-size 4 --master-port 12356; 
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model2; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 15 --avg 8 --max-duration 1000         --world-size 4 --master-port 12357;
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model4; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 11 --avg 7 --max-duration 1000         --world-size 4 --master-port 12356; 
+    exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model5; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 11 --avg 7 --max-duration 1000         --world-size 4 --master-port 12357;
 
     ls -1 /exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model/ali/*/*/*.pt | wc -l
+
+    # For bad chapters, try the following:
+    # - Reduce max_duration, e.g., --max-duration 400
+    # - Reduce beam size for getting lattice
 fi
 
 

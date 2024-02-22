@@ -1008,8 +1008,8 @@ def main():
 
             save_results(params=params, test_set_name=test_set, results_dict=results_dict)
     else:
-        # # train_cuts = librispeech.train_clean_100_cuts()
-        # train_cuts = librispeech.train_all_shuf_cuts()
+        # train_cuts = librispeech.train_clean_100_cuts()
+        # # train_cuts = librispeech.train_all_shuf_cuts()
         
         # train_dl = librispeech.train_dataloaders(
         #     train_cuts, sampler_state_dict=None,
