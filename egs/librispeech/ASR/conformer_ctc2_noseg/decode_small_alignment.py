@@ -297,7 +297,7 @@ def get_parser():
 
     parser.add_argument(
         "--return-penalty",
-        type=int,
+        type=float,
         default=None,
         help="",
     )
@@ -305,7 +305,7 @@ def get_parser():
     parser.add_argument(
         "--segment-size",
         type=int,
-        default=30,
+        default=15,  # the reasonably shorter the better; 30 is worse than 15
         help="in seconds",
     )
 
@@ -525,6 +525,9 @@ def realign(
             batches.append([])
             cur_batch_duration = 0
 
+    if len(batches[-1]) == 0:
+        batches = batches[:-1]
+
     # Forced alignment
     for batch in batches:
         batch_segment_lengths = [seg[0].size(0) for seg in batch]
@@ -543,7 +546,6 @@ def realign(
                 if i not in alignment_results:
                     alignment_results[i] = ss_t + t
                 else:
-                    # TODO: or maybe no update is needed
                     alignment_results[i] = int((alignment_results[i] + ss_t + t) / 2)
 
     return failed
@@ -591,7 +593,7 @@ def align_dataset(
         #     breakpoint()
 
         # Skip them, which can cause OOM or other k2 errors
-        bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259", "41260"}
+        bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259", "41260", "153202", "171138"}
         # bad_chapters = {}
         if chapter_id[0] in bad_chapters:
             logging.info(f"Skip bad chapter: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
@@ -725,9 +727,10 @@ def align_dataset(
         Path(pt_path).parent.mkdir(parents=True, exist_ok=True)
         torch.save(save_rs, pt_path)
 
-        audacity_labels_str = to_audacity_label_format(params, frame_rate, alignment_results, text)
-        with open(str(pt_path)[:-3] + "_audacity.txt", "w") as fout:
-            print(audacity_labels_str, file=fout)
+        if False:
+            audacity_labels_str = to_audacity_label_format(params, frame_rate, alignment_results, text)
+            with open(str(pt_path)[:-3] + "_audacity.txt", "w") as fout:
+                print(audacity_labels_str, file=fout)
 
         logging.info(f"Saved: {pt_path}")
 
@@ -935,7 +938,7 @@ def run(rank, world_size, args):
         return not pt_path.exists()
     long_dataset.filter(filter_done)
 
-    long_dataset.filter(lambda audio_path, text_path: int(audio_path.split("/")[-2]) == 157946)
+    # long_dataset.filter(lambda audio_path, text_path: int(audio_path.split("/")[-2]) == 295948)
 
     if len(long_dataset) == 0:
         logging.info("No audio to process.")

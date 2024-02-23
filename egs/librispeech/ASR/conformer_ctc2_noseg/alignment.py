@@ -69,7 +69,8 @@ def get_range_without_outliers(my_list, scan_range=100, outlier_threshold=60):
     # given a list of integers in my_list in ascending order, find the range without outliers
     # outliers: a number that is outlier_threshold smaller/larger than its neighbors
 
-    assert len(my_list) > 10
+    if len(my_list) <= 10:
+        return my_list[0], my_list[-1]
 
     scan_range = min(scan_range, int(len(my_list)/2) - 1)
     
@@ -94,6 +95,34 @@ class WordCounter:
         self.counter1 += 1; return self.counter1
 
 
+def reduce_long_list1(ids_list1, ids_list2):
+    # break it into parts and compute overlap
+
+    T = 2000
+    start = 0
+    end = None
+
+    for i in range(0, len(ids_list1), T):
+        ids_list1_tmp = ids_list1[i: i+T]
+        nonoverlap = set(ids_list1_tmp) - set(ids_list2)
+        if len(nonoverlap) / len(ids_list1_tmp) < 0.3:
+            start = max(0, i-1)
+            break
+    
+    for i in reversed(range(0, len(ids_list1), T)):
+        ids_list1_tmp = ids_list1[i: i+T]
+        if len(ids_list1_tmp) < 0.8 * T:
+            continue
+
+        nonoverlap = set(ids_list1_tmp) - set(ids_list2)
+        if len(nonoverlap) / len(ids_list1_tmp) < 0.3:
+            end = i + 1 + 1
+            break
+    
+    return ids_list1[start: end]
+
+
+
 def get_aligned_list(hyps_list, my_hyps_min=None, my_hyps_max=None, device='cpu'):
     my_hyps_ids = sorted([w for hyp in hyps_list for w in hyp])
 
@@ -105,6 +134,12 @@ def get_aligned_list(hyps_list, my_hyps_min=None, my_hyps_max=None, device='cpu'
     ids_list1 = list(range(my_hyps_min, my_hyps_max + 1))
     ids_list2 = [item for sublist in hyps_list for item in ([max_symbol_id] + sublist)]
     ids_list2 = ids_list2[1:]
+
+    list1_len_thres = 40000
+    if len(ids_list1) > list1_len_thres:
+        logging.warning(f"Long ids_list1 ({len(ids_list1)}) in range {my_hyps_min} and {my_hyps_max} vs. list2 ({len(ids_list2)})")
+        ids_list1 = reduce_long_list1(ids_list1, ids_list2)
+        logging.warning(f"Reduced to ({len(ids_list1)})")
 
     graph1 = get_linear_fst(ids_list1, max_symbol_id=max_symbol_id+1, blank_id=0, is_left=True, return_str=False)
     graph2 = get_linear_fst(ids_list2, max_symbol_id=max_symbol_id+1, blank_id=0, is_left=False, return_str=False)
@@ -202,15 +237,19 @@ def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='
     rg_min = min(alignment_results.keys())
     rg_max = max(alignment_results.keys())
     aligned_flag = [i in alignment_results for i in range(rg_min, rg_max + 1)]
-    for i in range(rg_min, rg_max):
+    rg_min_tt = alignment_results[rg_min]  # just in case the first or last word got removed from the alignment due to the heursitic below
+    rg_max_tt = alignment_results[rg_max]
+    for i in range(rg_min, rg_max + 1):
         i = i - rg_min
         if aligned_flag[i]:
             sub_list = aligned_flag[max(0, i-neighbor_threshold): i + neighbor_threshold]
-            if sum(sub_list) < 0.5 * len(sub_list):
+            if sum(sub_list) < 0.5 * len(sub_list):  # only less than 50% of the words in the neighborhood are aligned
                 del alignment_results[i + rg_min]
                 aligned_flag[i] = False
     
     # Find the aligned parts
+    alignment_results[rg_min] = rg_min_tt  # dirty solution -- I still need to put them here to provide boundary information. They will still be re-aligned
+    alignment_results[rg_max] = rg_max_tt
     to_realign, no_need_to_realign = find_unaligned(aligned_flag, rg_min, alignment_results)
 
     # For some unaligned parts, we don't need to realign them cos they are too short
@@ -242,19 +281,19 @@ def get_neighbor_aligned_word(idx, alignment_results, neighbor_range):
         step = -1
     else:
         step = 1
-    
+
     idx += neighbor_range
-    while neighbor_range != 0:
+    while idx != 0:
         if idx in alignment_results:
             return idx
         idx += step
     
-    raise NotImplementedError
+    return idx
 
 
 def find_unaligned(aligned_flag, rg_min, alignment_results, no_need_to_realign_thres1=2, no_need_to_realign_thres2=10):
-    assert aligned_flag[0] is True
-    assert aligned_flag[-1] is True
+    # assert aligned_flag[0] is True
+    # assert aligned_flag[-1] is True
 
     # Find the indices of all consecutive "False" segments
     to_realign = [[i for i, _ in group] for key, group in itertools.groupby(enumerate(aligned_flag), key=lambda x: x[1]) if not key]

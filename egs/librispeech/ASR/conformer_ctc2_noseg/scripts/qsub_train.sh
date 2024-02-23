@@ -309,8 +309,8 @@ if false; then
     python3 ./conformer_ctc2_noseg/decode_small_alignment.py \
         --num-decoder-layers 0 \
         --exp-dir $exp_dir \
-        --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000 \
-        --world-size 1 --return-penalty -100 --master-port 12357 --seed 1383 --part 1/4
+        --use-averaged-model True --epoch 30 --avg 8 --max-duration 600 \
+        --world-size 1 --return-penalty -18.0 --master-port 12357 --seed 1383 --segment-size 15 --part 1/8
     # --master-port 12357 --seed 1383 --part 1/4
 
     exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/conformer_ctc2_noseg/exp/exp_seed_small_model; python3 ./conformer_ctc2_noseg/decode_small_alignment.py         --num-decoder-layers 0         --exp-dir $exp_dir         --use-averaged-model True --epoch 30 --avg 8 --max-duration 1000         --world-size 4 --master-port 12356; 
