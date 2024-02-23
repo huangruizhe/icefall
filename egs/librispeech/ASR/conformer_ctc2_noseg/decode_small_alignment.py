@@ -483,6 +483,7 @@ def realign(
     text,
     features, # (1, T, D)  # for one audio
     frame_rate,
+    word_start_symbols,
 ):
     device = model.device if isinstance(model, DDP) else next(model.parameters()).device
 
@@ -519,12 +520,12 @@ def realign(
         f, _, _ = seg
         batches[-1].append(seg)
         cur_batch_duration += f.size(0) * frame_rate
-        # These unaligned parts can be hard. So reduce the batch size
+        # These unaligned parts can be hard. So reduce the batch size by a half
         if cur_batch_duration > params.max_duration * 0.5:
             batches.append([])
             cur_batch_duration = 0
 
-    # Forced alignment    
+    # Forced alignment
     for batch in batches:
         batch_segment_lengths = [seg[0].size(0) for seg in batch]
         batch_features = pad_sequence([seg[0] for seg in batch], batch_first=True)
@@ -535,10 +536,15 @@ def realign(
         hyps, timestamps = align_one_batch(batch_features, text, y_long, batch_segment_lengths, params, model, sp, is_standard_forced_alignment=True)
         
         for seg, hyp, times in zip(batch, hyps, timestamps):
-            ss, ee = seg[-1]
+            times = [t for h, t in zip(hyp, times) if h in word_start_symbols]
+            ss, ee = seg[2]
             ss_t = alignment_results[ss]
-            for i, t in zip(range(ss + 1, ee), times[1:]):
-                alignment_results[i] = ss_t + t
+            for i, t in zip(range(ss, ee), times):
+                if i not in alignment_results:
+                    alignment_results[i] = ss_t + t
+                else:
+                    # TODO: or maybe no update is needed
+                    alignment_results[i] = int((alignment_results[i] + ss_t + t) / 2)
 
     return failed
 
@@ -708,7 +714,7 @@ def align_dataset(
 
         # Step (6): do standard forced alignment (without factor transducer) on the unaligned parts
         logging.info(f"Second-pass: [{batch_idx}/{len(dl)}] len(to_realign) = {len(to_realign)}")
-        failed_groups = realign(params, model, sp, alignment_results, to_realign, text, features, frame_rate)
+        failed_groups = realign(params, model, sp, alignment_results, to_realign, text, features, frame_rate, word_start_symbols)
         handle_failed_groups(failed_groups, alignment_results)
 
         # Step (7): save the results

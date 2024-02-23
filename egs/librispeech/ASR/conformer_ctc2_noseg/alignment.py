@@ -151,14 +151,16 @@ def get_aligned_list(hyps_list, my_hyps_min=None, my_hyps_max=None, device='cpu'
 
 
 def handle_failed_groups(no_need_to_realign, alignment_results):
+    # Just simply and linearly makeup the timestamp (frame index in the output frames)
+
     if len(no_need_to_realign) > 0:
         for group in no_need_to_realign:
             ss = group[0]   # this is aligned left end point
             ee = group[-1]  # this is aligned right end point
-            num_gaps = ss - ee
+            num_gaps = ee - ss
             tt1 = alignment_results[ss]
             tt2 = alignment_results[ee]
-            for j, i in enumerate(group[1:]):
+            for j, i in enumerate(range(ss + 1, ee)):
                 alignment_results[i] = int((tt2 - tt1) / num_gaps * (j + 1) + tt1)
     return
 
@@ -212,7 +214,6 @@ def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='
     to_realign, no_need_to_realign = find_unaligned(aligned_flag, rg_min, alignment_results)
 
     # For some unaligned parts, we don't need to realign them cos they are too short
-    # Just simply and linearly makeup the timestamp (frame index in the output frames)
     handle_failed_groups(no_need_to_realign, alignment_results)
 
     return alignment_results, to_realign
@@ -236,34 +237,58 @@ def get_dur_group(group, rg_min, alignment_results):
     return alignment_results[ee] - alignment_results[ss]
 
 
-def find_unaligned(aligned_flag, rg_min, alignment_results):
+def get_neighbor_aligned_word(idx, alignment_results, neighbor_range):
+    if neighbor_range > 0:
+        step = -1
+    else:
+        step = 1
+    
+    idx += neighbor_range
+    while neighbor_range != 0:
+        if idx in alignment_results:
+            return idx
+        idx += step
+    
+    raise NotImplementedError
+
+
+def find_unaligned(aligned_flag, rg_min, alignment_results, no_need_to_realign_thres1=2, no_need_to_realign_thres2=10):
     assert aligned_flag[0] is True
     assert aligned_flag[-1] is True
 
     # Find the indices of all consecutive "False" segments
     to_realign = [[i for i, _ in group] for key, group in itertools.groupby(enumerate(aligned_flag), key=lambda x: x[1]) if not key]
 
-    # Too few words
-    no_need_to_realign_thres1 = 2  # 2 word unaligned
-    no_need_to_realign1 = [group for group in to_realign if len(group) <= no_need_to_realign_thres1]
-    no_need_to_realign1 = [(rg_min + group[0] - 1, rg_min + group[-1] + 1) for group in no_need_to_realign1]
-    to_realign = [group for group in to_realign if len(group) > no_need_to_realign_thres1]
+    if False:
+        # Too few words, e.g., 2 words
+        no_need_to_realign1 = [group for group in to_realign if len(group) <= no_need_to_realign_thres1]
+        no_need_to_realign1 = [(rg_min + group[0] - 1, rg_min + group[-1] + 1) for group in no_need_to_realign1]
+        to_realign = [group for group in to_realign if len(group) > no_need_to_realign_thres1]
 
-    # Too short time
-    no_need_to_realign_thres2 = 10  # 10 frames in the final output is 0.4 sec
-    no_need_to_realign2 = [group for group in to_realign if get_dur_group(group, rg_min, alignment_results) <= no_need_to_realign_thres2]
-    no_need_to_realign2 = [(rg_min + group[0] - 1, rg_min + group[-1] + 1) for group in no_need_to_realign2]
-    to_realign = [group for group in to_realign if get_dur_group(group, rg_min, alignment_results) > no_need_to_realign_thres2]
+        # Too short time, e.g., 10 frames in the final output is 0.4 sec
+        no_need_to_realign2 = [group for group in to_realign if get_dur_group(group, rg_min, alignment_results) <= no_need_to_realign_thres2]
+        no_need_to_realign2 = [(rg_min + group[0] - 1, rg_min + group[-1] + 1) for group in no_need_to_realign2]
+        to_realign = [group for group in to_realign if get_dur_group(group, rg_min, alignment_results) > no_need_to_realign_thres2]
 
-    no_need_to_realign = no_need_to_realign1 + no_need_to_realign2
-    no_need_to_realign = sorted(no_need_to_realign, key=lambda x: x[0])
+        no_need_to_realign = no_need_to_realign1 + no_need_to_realign2
+        no_need_to_realign = sorted(no_need_to_realign, key=lambda x: x[0])
+    else:
+        # Ok, just add more padding to the segments
+        no_need_to_realign = []
+        pass
 
     # Ok, these are needed to be realigned
     to_realign = [(group[0], group[-1]) for group in to_realign]
 
     # Merge the unaligned segments if they are close to each other
     to_realign = merge_segments(to_realign, threshold=3, is_sorted=True)
-    to_realign = [(rg_min + group[0] - 1, rg_min + group[-1] + 1) for group in to_realign]  # each start/end will be an aligned word
+    neighbor_range = 3  # add 3 already aligned words to the left and right
+    to_realign = [
+        (
+            get_neighbor_aligned_word(rg_min + group[0], alignment_results, -neighbor_range),
+            get_neighbor_aligned_word(rg_min + group[-1] + 1, alignment_results, neighbor_range)
+        ) for group in to_realign
+    ]  # each start/end will be an aligned word
     return to_realign, no_need_to_realign
 
 
