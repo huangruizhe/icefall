@@ -186,6 +186,9 @@ class LibrispeechLongAudioDataset(Dataset):
         book_id = Path(text_path).parent.stem
 
         try:
+            # Note, text here in librispeech is the entire book,
+            # while audio here is just a chapter.
+            # So the text here is a super-set of the audio transcription.
             text = self.load_book(f"{self.root}/{text_path}")
         except:  # in case of broken file
             text = None
@@ -195,6 +198,8 @@ class LibrispeechLongAudioDataset(Dataset):
         else:
             try:
                 waveform, sample_rate = torchaudio.load(f"{self.root}/{audio_path}")
+                if waveform.size(0) > 1:
+                    waveform = waveform.mean(dim=0).unsqueeze(0)
             except:  # in case of broken file
                 waveform, sample_rate = [], -1
         

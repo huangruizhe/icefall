@@ -8,6 +8,7 @@ from data_long_dataset import *
 from pathlib import Path
 import itertools
 import logging
+import lis
 
 
 def get_linear_fst(word_ids_list, blank_id=0, max_symbol_id=1000, is_left=True, return_str=False):
@@ -199,8 +200,25 @@ def handle_failed_groups(no_need_to_realign, alignment_results):
                 alignment_results[i] = int((tt2 - tt1) / num_gaps * (j + 1) + tt1)
     return
 
-
+# TODO: we may need to do a two pass alignment
 def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='cpu'):
+    # The task here is to find the "reliable" aligned parts from the alignment results `rs`
+    # Since the alignment results are actually "indices" in the long text, we hope to find the
+    # longest increasing subsubsequence from the alignment results.
+
+    # solution1: just wfst(k2) to compute edit distance (shortest path from the pruned graph)
+    # solution2: just use python's difflib: https://docs.python.org/3/library/difflib.html#differ-example
+    #            - https://github.com/lowerquality/gentle/blob/master/gentle/diff_align.py
+    # solution3: https://unix.stackexchange.com/questions/2150/diffing-two-big-text-files
+    # solution4: Longest Increasing Subsequence (LIS)
+    #            - https://en.wikipedia.org/wiki/Longest_increasing_subsequence
+    #            - https://www.reddit.com/r/algorithms/comments/c5rerp/given_a_list_of_unsorted_integers_find_the/?onetap_auto=true
+    #            - https://leetcode.com/problems/longest-increasing-subsequence/description/
+    #            - https://algo.monster/liteproblems/673
+    #            - https://python.plainenglish.io/longest-increasing-subsequence-python-e75d028cef7a
+    #            - https://www.youtube.com/watch?v=66w10xKzbRM&t=0s
+    # solution5: vimdiff: vimdiff <(tr ' ' '\n' <download/LibriSpeechAligned/LibriSpeech/books/ascii/2981/2981.txt) <(tr ' ' '\n' <download/LibriSpeechAligned/LibriSpeech/books/ascii/3600/3600.txt)
+
     hyps = rs['hyps']
     timestamps = rs['timestamps']
     output_frame_offset = rs['output_frame_offset'].tolist()
@@ -210,9 +228,22 @@ def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='
     alignment_results = dict()
 
     my_hyps_max_prev = None
-    for i in range(0, len(hyps), num_segments_per_chunk):
+    # for i in range(0, len(hyps), num_segments_per_chunk):
+    i = 0
+    while i < len(hyps):
         # logging.info(f"Processing chunks: {i} to {i+num_segments_per_chunk}")
         hyps_list = hyps[i: i+num_segments_per_chunk]
+        i_next = i + num_segments_per_chunk
+
+        ids_list2_ = [item for sublist in hyps_list for item in sublist]
+        if len(ids_list2_) < 60:
+           hyps_list = hyps[i: i+num_segments_per_chunk*2]  # Increase the chunk size for better alignment results
+           i_next = i + num_segments_per_chunk*2
+
+        if i_next == len(hyps) - 1 or i_next == len(hyps) - 2:
+            hyps_list = hyps[i:]  # Just include the rest of them
+            i_next = len(hyps)
+
         best_paths, rs_list1, rs_list2, rs_list2_, max_symbol_id, rs_my_hyps_min, rs_my_hyps_max = \
             get_aligned_list(hyps_list, my_hyps_min=my_hyps_max_prev, device=device)
         
@@ -231,6 +262,7 @@ def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='
                 j += 1
 
         my_hyps_max_prev = rs_my_hyps_max
+        i = i_next
     
     # Post-process: remove isolatedly aligned words
     # Each aligned word should have a neighborhood of at least neighbor_threshold words

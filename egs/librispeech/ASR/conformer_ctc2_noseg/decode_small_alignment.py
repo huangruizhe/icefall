@@ -594,6 +594,11 @@ def align_dataset(
 
         # Skip them, which can cause OOM or other k2 errors
         bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259", "41260", "153202", "171138"}
+        bad_chapters |= {"48362", "136862", "136863", "159609", "216547", "276749", "124368", "131722", "75788", "66741", "16003", "7574", "245687"}
+        bad_chapters |= {"32399", "48361", "26872", "96429", "29340", "167590", "19207", "136848", "171107", "98645", "6522", "136846", "282383"}
+        bad_chapters |= {"12472", "167609", "32402", "142315", "143948", "95963", "19212", "108627", "136854", "19215", "3792", "102353", "216567"}
+        bad_chapters |= {"135136", "6517", "141758", "133295", "16048", "245697", "156115", "142276", "19373", "134809", "282357", "154880", "19361"}
+        bad_chapters |= {"19214", "56787", "47030", "495", "56787", "276748", "171134", "171134", "141148", "73028"}
         # bad_chapters = {}
         if chapter_id[0] in bad_chapters:
             logging.info(f"Skip bad chapter: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
@@ -709,15 +714,16 @@ def align_dataset(
         # word_index (in the long text) => frame_index (in the long audio)
         alignment_results, to_realign = align_long_text(
             rs, 
-            num_segments_per_chunk=5, 
+            num_segments_per_chunk=5,
             neighbor_threshold=5,
             device=device,
         )
 
         # Step (6): do standard forced alignment (without factor transducer) on the unaligned parts
-        logging.info(f"Second-pass: [{batch_idx}/{len(dl)}] len(to_realign) = {len(to_realign)}")
-        failed_groups = realign(params, model, sp, alignment_results, to_realign, text, features, frame_rate, word_start_symbols)
-        handle_failed_groups(failed_groups, alignment_results)
+        if len(to_realign) > 0:
+            logging.info(f"Second-pass: [{batch_idx}/{len(dl)}] len(to_realign) = {len(to_realign)} min:{min(map(lambda x: x[1]-x[0], to_realign))} max:{max(map(lambda x: x[1]-x[0], to_realign))}")
+            failed_groups = realign(params, model, sp, alignment_results, to_realign, text, features, frame_rate, word_start_symbols)
+            handle_failed_groups(failed_groups, alignment_results)
 
         # Step (7): save the results
         save_rs = {
