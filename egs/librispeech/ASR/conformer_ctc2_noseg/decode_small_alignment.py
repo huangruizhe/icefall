@@ -355,6 +355,8 @@ def get_params() -> AttributeDict:
             # "output_beam": 6,
             # "min_active_states": 30,
             # "max_active_states": 10000,
+            "target_sample_rate": 16000,
+            "frame_rate": 0.01,  # from feature extraction
         }
     )
     return params
@@ -411,8 +413,7 @@ def get_str_by_range(book, rgs):
 
 def align_one_batch(
     batch_features: torch.Tensor,
-    text,
-    y_long,
+    y_long_list,
     segment_lengths,
     params: AttributeDict,
     model: nn.Module,
@@ -423,14 +424,14 @@ def align_one_batch(
     actual_batch_size = batch_features.size(0)
     batch = {
         "supervisions": {
-            "text": text,
+            "text": "",
             "cut": None,
             "sequence_idx": torch.arange(actual_batch_size),
             "start_frame": torch.zeros(actual_batch_size),
             "num_frames": torch.Tensor(segment_lengths).int(),
         },
         "inputs": batch_features,
-        "y_long": y_long,
+        "y_long": y_long_list,
     }
 
 
@@ -453,13 +454,13 @@ def align_one_batch(
     # )
     # hyps = sp.decode(hyps)
 
-    y_long = batch["y_long"]
+    # y_long = batch["y_long"]
     # book = supervisions["text"]
 
     if False:
-        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long)
+        batch_wer = get_batch_wer(params, ctc_output, batch, sp, decoding_graph=y_long_list)
     else:  # For make_factor_transducer4
-        lattice, best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=y_long)
+        lattice, best_paths = get_lattice_and_best_paths(params, ctc_output, batch, sp, decoding_graph=y_long_list)
         lattice = lattice.detach().to('cpu')
         best_paths = best_paths.detach().to('cpu')
 
@@ -551,7 +552,347 @@ def realign(
     return failed
 
 
+def align_one_long_audio_with_factor_transducer(
+    params: AttributeDict,
+    model: nn.Module,
+    sp: Optional[spm.SentencePieceProcessor],
+    audio_id,
+    features, 
+    text,
+    meta_data,
+    word_start_symbols,
+    left_end_aligned=False,
+    right_end_aligned=False,
+):
+    # `audio_id` is the unique identifier for the long audio, or any identifier you want
+    # `features` of shape (T, D) is the features for a long audio
+    # `text` is the corresponding long text (str), which can also be a superset
+    # `left_end_aligned` and `right_end_aligned` are used to indicate whether the beginning and ending of the audio are aligned to the text
+
+    assert features.ndim == 2
+    device = model.device if isinstance(model, DDP) else next(model.parameters()).device
+
+    text_splitted = text.split()
+
+    step = params.segment_size - params.overlap  # in seconds
+    batch_size = int(params.max_duration / params.segment_size)
+
+    segment_size = int(params.segment_size / params.frame_rate)
+    overlap = int(params.overlap / params.frame_rate)
+    step = int(step / params.frame_rate)
+
+    # Step (0): get the factor transducer for the long text
+    # Note, we can try other options in the future, e.g., linear graph, bigram graph and so on
+    y_long = make_factor_transducer4_skip(
+        sp.encode(text, out_type=int), 
+        word_start_symbols=word_start_symbols, 
+        return_str=False,
+        skip_penalty=params.skip_penalty,  # default=-0.5, tie breaking and avoid long skips
+        # return_penalty=-18.0,   # ok, now we allow return to the start states from word ends, but with big penalty (in the log domain; it seems -15~-20 is good)  
+        # An additional note: -100 or None may be good on small test set with artificial long text; -18.0 is better on the training data with real long text (book)
+        return_penalty=params.return_penalty,
+        # return_penalty=None,    # no "return arc" is allowed
+    )
+    # logging.info(f"[{audio_id}] y_long.shape = {y_long.shape}, y_long.num_arcs = {y_long.num_arcs}")
+
+    # Step (3): cut the long audio features into overlapping segments
+    features = features.unsqueeze(0)  # (1, T, D)
+    padding_size = (segment_size - (features.size(1) % segment_size)) % segment_size
+    
+    features_padded = torch.nn.functional.pad(features, (0, 0, 0, padding_size))  # Pad the tensor with zeros
+    features_padded = features_padded.unfold(dimension=1, size=segment_size, step=step)
+    features_padded = features_padded.permute(0, 1, 3, 2)
+    # features_padded is of shape (1, L, segment_size, D), where L is the number of segments.
+    features_padded = features_padded[0]  # (L, segment_size, D)
+    
+    segment_lengths = [segment_size] * features_padded.size(0)
+    segment_lengths[-1] -= padding_size
+    segment_lengths = torch.tensor(segment_lengths)
+
+    output_segment_lengths = torch.div(segment_lengths, params.subsampling_factor, rounding_mode="floor").int()
+    output_frame_offset = torch.arange(0, segment_lengths.size(0) * step, step)
+    output_frame_offset = torch.div(output_frame_offset, params.subsampling_factor, rounding_mode="floor").int()
+
+    assert len(segment_lengths) == features_padded.size(0)
+    assert len(segment_lengths) == len(output_frame_offset)
+
+    # Discard the last chunk if it is too short
+    if segment_lengths[-1] < 20:  # which is 5 frames or 0.2 secs
+        features_padded = features_padded[:-1]
+        segment_lengths = segment_lengths[:-1]
+        output_segment_lengths = output_segment_lengths[:-1]
+        output_frame_offset = output_frame_offset[:-1]
+    
+    # Step (4): do alignment for batches
+    results_hyps = list()
+    results_timestamps = list()
+    for i in range(0, features_padded.size(0), batch_size):
+        batch_features = features_padded[i: i+batch_size]
+        batch_segment_lengths = segment_lengths[i: i+batch_size]
+
+        try:
+            hyps, timestamps = align_one_batch(batch_features, [y_long], batch_segment_lengths, params, model, sp)
+            results_hyps.extend(hyps)
+            results_timestamps.extend(timestamps)
+        # except torch.cuda.CudaError as e:
+        except Exception as e:
+            import traceback
+            logging.error(f"[{audio_id}] Exception occurred: {e}")
+            traceback.print_exc()
+
+            logging.info(f"[{audio_id}] Trying half of the batch size ...")
+            actual_batch_size = batch_features.size(0)
+            half_size = actual_batch_size // 2 + 1
+
+            hyps, timestamps = align_one_batch(batch_features[:half_size], [y_long], batch_segment_lengths[:half_size], params, model, sp)
+            results_hyps.extend(hyps)
+            results_timestamps.extend(timestamps)
+
+            hyps, timestamps = align_one_batch(batch_features[half_size:], [y_long], batch_segment_lengths[half_size:], params, model, sp)
+            results_hyps.extend(hyps)
+            results_timestamps.extend(timestamps)
+
+    # Step (5): post-process the alignment for each audio as well as the unaligned parts    
+    rs = {
+        "meta_data": meta_data,
+        "hyps": results_hyps,
+        "timestamps": results_timestamps,
+        "output_frame_offset": output_frame_offset,
+    }
+
+    # TODO: 
+    # The beginning and ending of the audio is hard to be aligned to the book.
+    # We might need to use VAD or something to handle it. Or predefine the start/end of the audio and text.
+    # Ignored them for now cos we just use the alignment for ASR training.
+
+    # `alignment_results` is a dict: 
+    #   word_index (in the long text) => output frame_index (in the long audio), which means is downsampled by params.subsampling_factor
+    # `to_realign` is a list of (start_word_index, end_word_index)
+    #   where both ends are already aligned, which means they are in `alignment_results`
+    alignment_results, to_realign = align_long_text(
+        rs, 
+        num_segments_per_chunk=5,
+        neighbor_threshold=5,
+        device=device,
+    )
+
+    k_start_or_end = 5
+    sorted_keys = sorted(alignment_results.keys())
+
+    if left_end_aligned:
+        # If this is the case, the alignment result must contains the first word
+        if 0 not in alignment_results:
+            alignment_results[0] = 0  # It will be adjusted later
+            to_realign.append((0, sorted_keys[k_start_or_end]))
+    
+    if right_end_aligned:
+        # If this is the case, the alignment result must contains the last word
+        if len(text_splitted) - 1 not in alignment_results:
+            alignment_results[len(text_splitted) - 1] = features.size(1) * params.subsampling_factor
+            to_realign.append((sorted_keys[-k_start_or_end], len(text_splitted) - 1))
+
+    logging.info(f"[{audio_id}] len(alignment_results): {len(alignment_results)}, len(to_realign): {len(to_realign)}")
+    return alignment_results, to_realign
+
+
+def align_short_audio_batch_with_forced_alignment(
+    params: AttributeDict,
+    model: nn.Module,
+    sp: Optional[spm.SentencePieceProcessor],
+    audio_id,
+    features,
+    text,
+    alignment_results,
+    to_realign,
+    meta_data,
+    word_start_symbols,
+):
+    assert features.ndim == 2
+    device = model.device if isinstance(model, DDP) else next(model.parameters()).device
+
+    text_splitted = text.split()
+    # to_realign_lengths = [ee - ss for ss, ee in to_realign]
+    failed = []
+
+    # Get the unaligned segments
+    segments = list()
+    for ss, ee in to_realign:  # ss, ee are word indices in the long text
+        ss_t = alignment_results[ss] * params.subsampling_factor  # frame index in the long audio
+        ee_t = alignment_results[ee] * params.subsampling_factor
+
+        # We have removed too short segments here in to_realign
+        # logging.info(f"Realigning: [{ss_t}, {ee_t}] text {ss}:{ee}")
+        if ee_t - ss_t < 20:
+            failed.append((ss, ee))
+            continue
+
+        segments.append(
+            (features[ss_t: ee_t], text_splitted[ss: ee], (ss, ee))
+        )
+    
+    segments = sorted(segments, key=lambda x: x[0].size(0))
+
+    # logging.info(f"Second-pass: [{batch_idx}/{len(dl)}] len(to_realign) = {len(to_realign)} min:{min(map(lambda x: x[1]-x[0], to_realign))} max:{max(map(lambda x: x[1]-x[0], to_realign))}")
+    # logging.info(f"Span: min:{min(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames, max:{max(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames. 1 frame = {frame_rate*params.subsampling_factor} seconds")
+    segments_info = [
+        (seg[0].size(0), f"duration: {seg[0].size(0) * params.frame_rate} secs, {len(seg[1])} words") for seg in segments
+    ]
+    logging.info(f"[{audio_id}] shortest: {segments_info[0]}, longest: {segments_info[-1]}")
+
+    # Batchify the segments
+    batches = [[]]
+    cur_batch_duration = 0
+    for seg in segments:
+        batches[-1].append(seg)
+        cur_batch_duration += seg[0].size(0) * params.frame_rate
+        # These unaligned parts can be hard. So reduce the batch size by a half
+        if cur_batch_duration > params.max_duration * 0.5:
+            batches.append([])
+            cur_batch_duration = 0
+
+    if len(batches[-1]) == 0:
+        batches = batches[:-1]
+
+    # Forced alignment
+    for batch in batches:
+        batch_segment_lengths = [seg[0].size(0) for seg in batch]
+        batch_features = pad_sequence([seg[0] for seg in batch], batch_first=True)
+        ys = sp.encode([" ".join(seg[1]) for seg in batch], out_type=int)
+        y_long = k2.ctc_graph(ys, modified=False, device=device)
+        y_long = [y_long[i] for i in range(y_long.shape[0])]
+
+        hyps, timestamps = align_one_batch(batch_features, y_long, batch_segment_lengths, params, model, sp, is_standard_forced_alignment=True)
+        
+        for seg, hyp, times in zip(batch, hyps, timestamps):
+            times = [t for h, t in zip(hyp, times) if h in word_start_symbols]
+            ss, ee = seg[2]
+            ss_t = alignment_results[ss]
+            for i, t in zip(range(ss, ee), times):
+                if i not in alignment_results:
+                    alignment_results[i] = ss_t + t
+                else:
+                    if abs(alignment_results[i] - (ss_t + t)) > 10:
+                        alignment_results[i] = ss_t + t  # only use this new timestamp if it is too different
+                    else:
+                        alignment_results[i] = int((alignment_results[i] + ss_t + t) / 2)
+    
+    return alignment_results, failed
+
+
+def second_pass(
+    params: AttributeDict,
+    model: nn.Module,
+    sp: Optional[spm.SentencePieceProcessor],
+    audio_id,
+    features,
+    text,
+    alignment_results,
+    to_realign,
+    meta_data,
+    word_start_symbols,
+):
+    # Identify long segments, which cannot be aligned by forced alignment. 
+    # We need to break them down as a long audio
+    long_segments = list()
+    short_segments = list()
+    for ss, ee in to_realign:  # ss, ee are word indices in the long text
+        ss_t = alignment_results[ss] * params.subsampling_factor  # frame index in the long audio
+        ee_t = alignment_results[ee] * params.subsampling_factor
+
+        if (ee_t - ss_t) * params.frame_rate > params.seg:
+            pass
+        # (seg[0].size(0), f"duration: {seg[0].size(0) * params.frame_rate} secs, {len(seg[1].split())} words") for seg in segments
+    
+    # logging.info(f"Second-pass: [{batch_idx}/{len(dl)}] len(to_realign) = {len(to_realign)} min:{min(map(lambda x: x[1]-x[0], to_realign))} max:{max(map(lambda x: x[1]-x[0], to_realign))}")
+    # logging.info(f"Span: min:{min(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames, max:{max(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames. 1 frame = {frame_rate*params.subsampling_factor} seconds")
+    logging.info(f"Second-pass: [{batch_idx}/{len(dl)}]")
+    alignment_results, failed_groups = align_short_audio_batch_with_forced_alignment(
+        params, model, sp, audio_id, features, text, alignment_results, to_realign, meta_data, word_start_symbols,
+    )
+
+
 def align_dataset(
+    dl: torch.utils.data.DataLoader,
+    params: AttributeDict,
+    model: nn.Module,
+    sp: Optional[spm.SentencePieceProcessor],
+    rank: int,
+) -> Dict[str, List[Tuple[str, List[str], List[str]]]]:
+    
+    model.eval()
+    device = model.device if isinstance(model, DDP) else next(model.parameters()).device
+    
+    word_start_symbols = {i for i in range(sp.vocab_size()) if sp.id_to_piece(i).startswith('▁')}
+
+    for batch_idx, batch in enumerate(dl):
+        # Each batch contains a single long audio and its long text
+        features, text, speaker_id, chapter_id, meta_data = batch
+        features = features[0]
+        text = text[0]
+        speaker_id = speaker_id[0]
+        chapter_id = chapter_id[0]
+
+        # if "2961/960/960" in meta_data["audio_path"][0]:
+        #     breakpoint()
+
+        # Skip them, which can cause OOM or other k2 errors
+        bad_chapters = {"6870", "6872", "6855", "6852", "6879", "6850", "6397", "137482", "137483", "6872", "41259", "41260", "153202", "171138"}
+        bad_chapters |= {"48362", "136862", "136863", "159609", "216547", "276749", "124368", "131722", "75788", "66741", "16003", "7574", "245687"}
+        bad_chapters |= {"32399", "48361", "26872", "96429", "29340", "167590", "19207", "136848", "171107", "98645", "6522", "136846", "282383"}
+        bad_chapters |= {"12472", "167609", "32402", "142315", "143948", "95963", "19212", "108627", "136854", "19215", "3792", "102353", "216567"}
+        bad_chapters |= {"135136", "6517", "141758", "133295", "16048", "245697", "156115", "142276", "19373", "134809", "282357", "154880", "19361"}
+        bad_chapters |= {"19214", "56787", "47030", "495", "56787", "276748", "171134", "171134", "141148", "73028"}
+        bad_chapters = {}
+        if chapter_id in bad_chapters:
+            logging.info(f"Skip bad chapter: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
+            continue
+
+        logging.info(f"Processing: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
+
+        audio_path = meta_data["audio_path"][0]
+        # pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "LibriSpeechAligned/LibriSpeech/").replace("/books/", "/ali/")
+        # pt_path = f"{dl.dataset.root}/{pt_path}"
+        pt_path = audio_path.replace("LibriSpeechOriginal/LibriSpeech/", "").replace("mp3/", f"ali_{params.return_penalty}_segment{params.segment_size}_overlap{params.overlap}/")
+        pt_path = f"{params.exp_dir}/{pt_path}"
+        pt_path = Path(pt_path).parent / (Path(pt_path).parent.stem + ".pt")
+        if pt_path.exists():
+            logging.info(f"Skip: {pt_path}")
+            continue
+
+        # First-pass alignment
+        alignment_results, to_realign = align_one_long_audio_with_factor_transducer(
+            params, model, sp, chapter_id, features, text, meta_data, word_start_symbols, left_end_aligned=False, right_end_aligned=False,
+        )
+
+        # Second-pass alignment for the unaligned segments
+        if False and len(to_realign) > 0:
+            # logging.info(f"Second-pass: [{batch_idx}/{len(dl)}] len(to_realign) = {len(to_realign)} min:{min(map(lambda x: x[1]-x[0], to_realign))} max:{max(map(lambda x: x[1]-x[0], to_realign))}")
+            # logging.info(f"Span: min:{min(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames, max:{max(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames. 1 frame = {frame_rate*params.subsampling_factor} seconds")
+            logging.info(f"Second-pass: [{batch_idx}/{len(dl)}]")
+            alignment_results, failed_groups = align_short_audio_batch_with_forced_alignment(
+                params, model, sp, chapter_id, features, text, alignment_results, to_realign, meta_data, word_start_symbols,
+            )
+            handle_failed_groups(failed_groups, alignment_results)
+
+        # Save the results
+        save_rs = {
+            "meta_data": meta_data,
+            "alignment_results": alignment_results,
+        }
+        Path(pt_path).parent.mkdir(parents=True, exist_ok=True)
+        torch.save(save_rs, pt_path)
+
+        if False:
+            audacity_labels_str = to_audacity_label_format(params, frame_rate, alignment_results, text)
+            with open(str(pt_path)[:-3] + "_audacity.txt", "w") as fout:
+                print(audacity_labels_str, file=fout)
+
+        logging.info(f"Saved: {pt_path}")
+
+    return
+
+
+def align_dataset0(
     dl: torch.utils.data.DataLoader,
     params: AttributeDict,
     model: nn.Module,
@@ -721,6 +1062,7 @@ def align_dataset(
         # Step (6): do standard forced alignment (without factor transducer) on the unaligned parts
         if len(to_realign) > 0:
             logging.info(f"Second-pass: [{batch_idx}/{len(dl)}] len(to_realign) = {len(to_realign)} min:{min(map(lambda x: x[1]-x[0], to_realign))} max:{max(map(lambda x: x[1]-x[0], to_realign))}")
+            logging.info(f"Span: min:{min(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames, max:{max(map(lambda x: alignment_results[x[1]]-alignment_results[x[0]], to_realign))} frames. 1 frame = {frame_rate*params.subsampling_factor} seconds")
             failed_groups = realign(params, model, sp, alignment_results, to_realign, text, features, frame_rate, word_start_symbols)
             handle_failed_groups(failed_groups, alignment_results)
 
@@ -749,52 +1091,6 @@ def align_dataset(
     return
 
 
-
-def save_results(
-    params: AttributeDict,
-    test_set_name: str,
-    results_dict: Dict[str, List[Tuple[str, List[str], List[str]]]],
-):
-    if params.method in ("attention-decoder", "rnn-lm"):
-        # Set it to False since there are too many logs.
-        enable_log = False
-    else:
-        enable_log = True
-    test_set_wers = dict()
-    for key, results in results_dict.items():
-        recog_path = params.exp_dir / f"recogs-{test_set_name}-{key}.txt"
-        results = sorted(results)
-        store_transcripts(filename=recog_path, texts=results)
-        if enable_log:
-            logging.info(f"The transcripts are stored in {recog_path}")
-
-        # The following prints out WERs, per-word error statistics and aligned
-        # ref/hyp pairs.
-        errs_filename = params.exp_dir / f"errs-{test_set_name}-{key}.txt"
-        with open(errs_filename, "w") as f:
-            wer = write_error_stats(
-                f, f"{test_set_name}-{key}", results, enable_log=enable_log
-            )
-            test_set_wers[key] = wer
-
-        if enable_log:
-            logging.info("Wrote detailed error stats to {}".format(errs_filename))
-
-    test_set_wers = sorted(test_set_wers.items(), key=lambda x: x[1])
-    errs_info = params.exp_dir / f"wer-summary-{test_set_name}.txt"
-    with open(errs_info, "w") as f:
-        print("settings\tWER", file=f)
-        for key, val in test_set_wers:
-            print("{}\t{}".format(key, val), file=f)
-
-    s = "\nFor {}, WER of different settings are:\n".format(test_set_name)
-    note = "\tbest for {}".format(test_set_name)
-    for key, val in test_set_wers:
-        s += "{}\t{}{}\n".format(key, val, note)
-        note = ""
-    logging.info(s)
-
-
 @torch.no_grad()
 def run(rank, world_size, args):
     params = get_params()
@@ -804,7 +1100,7 @@ def run(rank, world_size, args):
     if world_size > 1:
         setup_dist(rank, world_size, params.master_port)
 
-    setup_logger(f"{params.exp_dir}/alignment/log-align")
+    setup_logger(f"{params.exp_dir}/ali_log/log-align")
     logging.info("Alignment started")
     logging.info(params)
 
@@ -949,6 +1245,14 @@ def run(rank, world_size, args):
         logging.info("No audio to process.")
         return
     
+    resample_transform = Resample(target_sample_rate=params.target_sample_rate)
+    fbank_transform = LhotseFbank()  # 16kHz
+    transforms = {
+        "resample_transform": resample_transform,
+        "features_transform": fbank_transform,
+    }
+    long_dataset = FeatureExtractedLongAudioDataset(long_dataset, transforms)
+
     if world_size > 1:
         sampler = DistributedSampler(long_dataset)
     else:

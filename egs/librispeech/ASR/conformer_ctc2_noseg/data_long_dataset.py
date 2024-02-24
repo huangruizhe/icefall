@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Tuple, Union
 import glob
 import string
+from abc import ABC, abstractmethod
 
 import torch
 from torch import Tensor
@@ -21,6 +22,27 @@ from unidecode import unidecode
 # https://huggingface.co/blog/audio-datasets
 # https://pytorch.org/audio/stable/transforms.html
 # https://medium.com/codex/a-comprehensive-tutorial-to-pytorch-distributeddataparallel-1f4b42bb1b51
+
+
+class LongAudioDataset(Dataset, ABC):
+    def __init__(
+        self,
+        root: Union[str, Path],
+    ) -> None:
+        self.root = root
+
+    @abstractmethod
+    def __getitem__(self, n: int):
+        pass
+
+    @abstractmethod
+    def __len__(self) -> int:
+        pass
+
+    @abstractmethod
+    def filter(self, filter_fn=lambda audio_path, text_path: True):
+        pass
+
 
 class EarningsCallLongAudioDataset(Dataset):
     
@@ -82,7 +104,7 @@ class EarningsCallLongAudioDataset(Dataset):
         return len(self.audio_files)
 
 
-class LibrispeechLongAudioDataset(Dataset):
+class LibrispeechLongAudioDataset(LongAudioDataset):
     # cd /exp/rhuang/meta/icefall/egs/librispeech/ASR/download 
     # mkdir -p LibriSpeechOriginal
     # cd LibriSpeechOriginal/
@@ -100,7 +122,7 @@ class LibrispeechLongAudioDataset(Dataset):
         skip_text_normalization=True,
         manifest_file=None,
     ) -> None:
-        self.root = root
+        super().__init__(root=root)
 
         self.skip_loading_audio = skip_loading_audio
         self.skip_text_normalization = skip_text_normalization
@@ -223,6 +245,32 @@ class LibrispeechLongAudioDataset(Dataset):
 
 class TedliumLongAudioDataset(Dataset):
     pass
+
+
+class FeatureExtractedLongAudioDataset(Dataset):
+    def __init__(self, dataset: Dataset, transform=None) -> None:
+        self.orig_dataset = dataset
+        self.transform = transform
+
+    def __getitem__(self, n: int):  # -> Tuple[Tensor, int, str, int, int, dict]:
+        waveform, sample_rate, text, speaker_id, audio_id, meta_data = self.orig_dataset[n]
+        
+        if "resample_transform" in self.transform:
+            resample_transform = self.transform["resample_transform"]
+            if sample_rate != resample_transform.target_sample_rate:
+                waveform = resample_transform(waveform, sample_rate)
+                sample_rate = resample_transform.target_sample_rate
+        
+        if "features_transform" in self.transform:
+            features_transform = self.transform["features_transform"]
+            features = features_transform(waveform, sampling_rate=sample_rate)            
+        
+        return features, text, speaker_id, audio_id, meta_data
+
+    def __len__(self) -> int:
+        return len(self.orig_dataset)
+
+
 
 
 if __name__ == "__main__":
