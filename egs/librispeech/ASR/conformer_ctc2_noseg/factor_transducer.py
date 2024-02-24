@@ -319,7 +319,7 @@ def make_factor_transducer4_bigram(word_id_list, word_start_symbols, return_str=
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
 
-def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=False, blank_penalty=0, skip_penalty=-0.5, return_penalty=None):
+def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=False, blank_penalty=0, skip_penalty=-0.5, return_penalty=None, noneps_bonus=0.0):
     # This is a modification of make_factor_transducer4, but we allow skip arcs instead of a factor transducer
     # `skip_penalty` is good for breaking ties: it prefers the shorter path without skips
 
@@ -349,10 +349,10 @@ def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=Fa
     eps_self_loops = sorted(eps_self_loops[1:-1]) + [final_state]
 
     arcs = [arcs[0]] + arcs[2:-5] + [a for a in arcs[-5:] if a[2] > 0]
-    arcs = [[ss, ee, l1, word_start_ids.get(ee, 0) if ss != ee else 0, w] for ss, ee, l1, l2, w in arcs]
+    arcs = [[ss, ee, l1, word_start_ids.get(ee, 0) if ss != ee else 0, w + noneps_bonus if l1 > 0 else w] for ss, ee, l1, l2, w in arcs]
 
     # in-coming arcs
-    arcs += [(0, n, l, word_start_ids[n], 0) for n, l in word_start]
+    arcs += [(0, n, l, word_start_ids[n], noneps_bonus if l > 0 else 0) for n, l in word_start]
 
     # out-going arcs
     # arcs += [(n, final_state, self_loops[n], counter.f3(), 0) for n, l in non_eps_nodes2 if self_loops[n] > 0]
@@ -365,8 +365,9 @@ def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=Fa
         arcs += [(n, 0, 0, 0, return_penalty) for n, n_next in word_end]
 
     # skip arcs
-    # arcs += [(n, next_token, self_loops[next_token], 0, 0) for ns, next_token in zip(eps_arcs1, token_starts[2:]) for n in ns]
-    arcs += [(n1, n2, 0, 0, skip_penalty) for n1, n2 in zip(eps_self_loops, eps_self_loops[1:])]
+    if skip_penalty is not None:
+        # arcs += [(n, next_token, self_loops[next_token], 0, 0) for ns, next_token in zip(eps_arcs1, token_starts[2:]) for n in ns]
+        arcs += [(n1, n2, 0, 0, skip_penalty) for n1, n2 in zip(eps_self_loops, eps_self_loops[1:])]
 
     # validation: monotonic order
     if False:

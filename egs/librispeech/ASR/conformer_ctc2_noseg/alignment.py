@@ -88,9 +88,14 @@ def get_range_without_outliers(my_list, scan_range=100, outlier_threshold=60):
     return left, right
 
 
-def remove_outliers(my_list, scan_range=100, outlier_threshold=60):
+def remove_outliers(my_list, max_symbol_id, scan_range=100, outlier_threshold=60):
     # Given a list of integers in my_list in ascending order, remove outliers
     # such that there is a gap more than outlier_threshold
+
+    while my_list[0] == max_symbol_id:
+        my_list = my_list[1:]
+    while my_list[-1] == max_symbol_id:
+        my_list = my_list[:-1]
 
     if len(my_list) <= 10:
         return my_list
@@ -99,9 +104,9 @@ def remove_outliers(my_list, scan_range=100, outlier_threshold=60):
     left = [i+1 for i in range(0, scan_range) if my_list[i+1] - my_list[i] > outlier_threshold]
     right = [i-1 for i in range(-scan_range, 0) if my_list[i] - my_list[i-1] > outlier_threshold]
     left = left[-1] if len(left) > 0 else 0
-    right = right[0] if len(right) > 0 else -1
+    right = right[0]+1 if len(right) > 0 else None
 
-    return my_list[left: right+1]
+    return my_list[left: right]
 
 
 def get_lis_alignment(hyp_list, lis_result, max_symbol_id):
@@ -291,8 +296,9 @@ def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='
     hyp_list = [i for hyp in hyps for i in [max_symbol_id] + hyp]
     hyp_list = hyp_list[1:]
     lis_result = lis.longestIncreasingSubsequence(hyp_list)
-    lis_result = remove_outliers(lis_result, scan_range=100, outlier_threshold=60)
-    assert len(lis_result) > 0
+    lis_result = remove_outliers(lis_result, max_symbol_id, scan_range=100, outlier_threshold=60)
+    if len(lis_result) == 0:
+        return dict(), None
     indices_in_segment = get_lis_alignment(hyp_list, lis_result, max_symbol_id)  # hyp_list and lis_result are both word indices in the long text
     
     for idx, ts, ofs in zip(indices_in_segment, timestamps, output_frame_offset):

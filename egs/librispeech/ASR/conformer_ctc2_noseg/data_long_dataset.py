@@ -222,6 +222,12 @@ class LibrispeechLongAudioDataset(LongAudioDataset):
                 waveform, sample_rate = torchaudio.load(f"{self.root}/{audio_path}")
                 if waveform.size(0) > 1:
                     waveform = waveform.mean(dim=0).unsqueeze(0)
+                
+                # This file: download/LibriSpeechOriginal/LibriSpeech/mp3/3331/159609/159609.mp3
+                # when loaded with torchaudio: waveform.shape is torch.Size([1, 8064])
+                # with librosa: waveform.shape is (32196096,) with some error messages: Note: Illegal Audio-MPEG-Header 0x184b8222 at offset 3845. Note: Trying to resync... Note: Skipped 84 bytes in input. [src/libmpg123/layer3.c:INT123_do_layer3():1801] error: dequantization failed! Note: Illegal Audio-MPEG-Header 0x320c5093 at offset 393049. Note: Trying to resync... Note: Skipped 334 bytes in input.
+                # Then to fix this audio manually, I used: `ffmpeg -i my_mp3_file.mp3 -f mp3 my_fixed_mp3_file.mp3
+
             except:  # in case of broken file
                 waveform, sample_rate = [], -1
         
@@ -254,16 +260,19 @@ class FeatureExtractedLongAudioDataset(Dataset):
 
     def __getitem__(self, n: int):  # -> Tuple[Tensor, int, str, int, int, dict]:
         waveform, sample_rate, text, speaker_id, audio_id, meta_data = self.orig_dataset[n]
+        # print(waveform.shape)
         
         if "resample_transform" in self.transform:
             resample_transform = self.transform["resample_transform"]
             if sample_rate != resample_transform.target_sample_rate:
                 waveform = resample_transform(waveform, sample_rate)
                 sample_rate = resample_transform.target_sample_rate
+            # print("after resample", waveform.shape)
         
         if "features_transform" in self.transform:
             features_transform = self.transform["features_transform"]
-            features = features_transform(waveform, sampling_rate=sample_rate)            
+            features = features_transform(waveform, sampling_rate=sample_rate)
+            # print("after fbank", features.shape)
         
         return features, text, speaker_id, audio_id, meta_data
 
