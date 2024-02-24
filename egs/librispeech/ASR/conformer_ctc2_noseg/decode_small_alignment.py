@@ -599,7 +599,7 @@ def align_dataset(
         bad_chapters |= {"12472", "167609", "32402", "142315", "143948", "95963", "19212", "108627", "136854", "19215", "3792", "102353", "216567"}
         bad_chapters |= {"135136", "6517", "141758", "133295", "16048", "245697", "156115", "142276", "19373", "134809", "282357", "154880", "19361"}
         bad_chapters |= {"19214", "56787", "47030", "495", "56787", "276748", "171134", "171134", "141148", "73028"}
-        # bad_chapters = {}
+        bad_chapters = {}
         if chapter_id[0] in bad_chapters:
             logging.info(f"Skip bad chapter: [{batch_idx}/{len(dl)}] {meta_data['audio_path']}")
             continue
@@ -702,7 +702,6 @@ def align_dataset(
             "hyps": results_hyps,
             "timestamps": results_timestamps,
             "output_frame_offset": output_frame_offset,
-            "num_words_in_text": len(text.split()),
         }
 
         # TODO: 

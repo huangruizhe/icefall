@@ -70,6 +70,10 @@ def get_range_without_outliers(my_list, scan_range=100, outlier_threshold=60):
     # given a list of integers in my_list in ascending order, find the range without outliers
     # outliers: a number that is outlier_threshold smaller/larger than its neighbors
 
+    # my_list = [150] + list(range(200,1000)) + [1105]
+    # print(my_list)
+    # get_range_without_outliers(my_list)
+
     if len(my_list) <= 10:
         return my_list[0], my_list[-1]
 
@@ -84,9 +88,64 @@ def get_range_without_outliers(my_list, scan_range=100, outlier_threshold=60):
     return left, right
 
 
-# my_list = [150] + list(range(200,1000)) + [1105]
-# print(my_list)
-# get_range_without_outliers(my_list)
+def remove_outliers(my_list, scan_range=100, outlier_threshold=60):
+    # Given a list of integers in my_list in ascending order, remove outliers
+    # such that there is a gap more than outlier_threshold
+
+    if len(my_list) <= 10:
+        return my_list
+    
+    scan_range = min(scan_range, int(len(my_list)/2) - 1)
+    left = [i+1 for i in range(0, scan_range) if my_list[i+1] - my_list[i] > outlier_threshold]
+    right = [i-1 for i in range(-scan_range, 0) if my_list[i] - my_list[i-1] > outlier_threshold]
+    left = left[-1] if len(left) > 0 else 0
+    right = right[0] if len(right) > 0 else -1
+
+    return my_list[left: right+1]
+
+
+def get_lis_alignment(hyp_list, lis_result, max_symbol_id):
+    # The last integer from lis_result may be wrong
+    # lis_result = lis_result[:-1]
+    # We have removed the outliers already
+    
+    midpoint = len(lis_result) // 2
+
+    indices_in_segment = [dict()]
+    last_boundary_i = 0
+    j = 0  # i: index in hyp_list, j: index in lis_result
+    for i in range(len(hyp_list)):
+        if j < midpoint:
+            if hyp_list[i] == lis_result[j]:
+                indices_in_segment[-1][lis_result[j]] = i - last_boundary_i
+                j += 1
+                if j == len(lis_result):
+                    break
+        else:
+            if hyp_list[i] == lis_result[j] and lis_result[j] not in indices_in_segment[-1]:
+                indices_in_segment[-1][lis_result[j]] = i - last_boundary_i
+                j += 1
+                if j == len(lis_result):
+                    break
+        
+        if hyp_list[i] == max_symbol_id:
+            last_boundary_i = i + 1
+            indices_in_segment.append(dict())
+    
+    # here, i and j still match; let's increase i by a certain range and 
+    # see if there's something that can extend to the alignment
+    range_thres = 50
+    gap_thres = 10  # within 10 words
+    last_lis_result = lis_result[-1]
+    for k in range(range_thres):
+        i += 1
+        if i == len(hyp_list):
+            break
+        if 0 < hyp_list[i] - last_lis_result < gap_thres and hyp_list[i] not in indices_in_segment[-1]:
+            indices_in_segment[-1][hyp_list[i]] = i - last_boundary_i
+            last_lis_result = hyp_list[i]
+
+    return indices_in_segment
 
 
 class WordCounter: 
@@ -223,46 +282,22 @@ def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='
     timestamps = rs['timestamps']
     output_frame_offset = rs['output_frame_offset'].tolist()
     meta_data = rs['meta_data']
-    num_words_in_text = rs.get('num_words_in_text', None)
 
     alignment_results = dict()
 
-    my_hyps_max_prev = None
-    # for i in range(0, len(hyps), num_segments_per_chunk):
-    i = 0
-    while i < len(hyps):
-        # logging.info(f"Processing chunks: {i} to {i+num_segments_per_chunk}")
-        hyps_list = hyps[i: i+num_segments_per_chunk]
-        i_next = i + num_segments_per_chunk
-
-        ids_list2_ = [item for sublist in hyps_list for item in sublist]
-        if len(ids_list2_) < 60:
-           hyps_list = hyps[i: i+num_segments_per_chunk*2]  # Increase the chunk size for better alignment results
-           i_next = i + num_segments_per_chunk*2
-
-        if i_next == len(hyps) - 1 or i_next == len(hyps) - 2:
-            hyps_list = hyps[i:]  # Just include the rest of them
-            i_next = len(hyps)
-
-        best_paths, rs_list1, rs_list2, rs_list2_, max_symbol_id, rs_my_hyps_min, rs_my_hyps_max = \
-            get_aligned_list(hyps_list, my_hyps_min=my_hyps_max_prev, device=device)
-        
-        # Put best_paths into alignment_results: 
-        # word_index (in the long text) => frame_index (in the long audio)
-        j = i
-        for l1, l2, l2_ in zip(rs_list1, rs_list2, rs_list2_):
-            # l1: word index in the long text
-            # l2: index in the chunk
-            # l2_: word index in the long text
-            if l1 == l2_ and l1 > 0:
-                if l2 >= len(timestamps[j]):
-                    print(f"Warning: [{j}][{l1, l2, l2_}]")
-                alignment_results[l1] = timestamps[j][l2] + output_frame_offset[j]  # frame_index in the long audio
-            if l2 == -1 and l2_ == max_symbol_id:  # segment boundary is an insertion error thus 0, but we have also subtracted it by 1. So check if l2 == -1
-                j += 1
-
-        my_hyps_max_prev = rs_my_hyps_max
-        i = i_next
+    # find the longest increasing subsequence
+    hyp_list = [i for hyp in hyps for i in hyp]
+    max_symbol_id = max(hyp_list) + 100   # use this symbol to mark the chunk boundaries
+    hyp_list = [i for hyp in hyps for i in [max_symbol_id] + hyp]
+    hyp_list = hyp_list[1:]
+    lis_result = lis.longestIncreasingSubsequence(hyp_list)
+    lis_result = remove_outliers(lis_result, scan_range=100, outlier_threshold=60)
+    assert len(lis_result) > 0
+    indices_in_segment = get_lis_alignment(hyp_list, lis_result, max_symbol_id)  # hyp_list and lis_result are both word indices in the long text
+    
+    for idx, ts, ofs in zip(indices_in_segment, timestamps, output_frame_offset):
+        for k, v in idx.items():
+            alignment_results[k] = ts[v] + ofs
     
     # Post-process: remove isolatedly aligned words
     # Each aligned word should have a neighborhood of at least neighbor_threshold words
