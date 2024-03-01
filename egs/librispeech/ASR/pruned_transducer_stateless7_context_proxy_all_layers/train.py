@@ -877,7 +877,7 @@ def compute_loss(
     context_collector.temp_rare_words = None
     contexts = {
         # "mode": "get_context_word_list",
-        "mode": "get_context_word_list_shared" if is_training else "get_context_word_list",
+        "mode": "get_context_word_list_shared" if is_training and context_collector.n_distractors > 0 else "get_context_word_list",
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,
@@ -1110,6 +1110,11 @@ def train_one_epoch(
                 f"lr: {cur_lr:.2e}, "
                 + (f"grad_scale: {scaler._scale.item()}" if params.use_fp16 else "")
             )
+
+            _model = model.module if isinstance(model, DDP) else model
+            logging.info(f"Number of distrators per utt: {_model.context_encoder.stats_num_distractors_per_utt:.2f}")
+            _model.context_encoder.stats_num_distractors_per_utt = 0
+            _model.context_encoder.stats_num_utt = 0
 
             if tb_writer is not None:
                 tb_writer.add_scalar(

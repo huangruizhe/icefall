@@ -5,6 +5,9 @@ class ContextEncoder(torch.nn.Module):
     def __init__(self):
         super(ContextEncoder, self).__init__()
 
+        self.stats_num_distractors_per_utt = 0
+        self.stats_num_utt = 0
+
     @abc.abstractmethod
     def forward(
         self, 
@@ -93,6 +96,10 @@ class ContextEncoder(torch.nn.Module):
             mask_h = torch.arange(max(num_words_per_utt) + 1)
             mask_h = mask_h.expand(len(num_words_per_utt), max(num_words_per_utt) + 1) > torch.Tensor(num_words_per_utt).unsqueeze(1)
             mask_h = mask_h.to(final_h.device)
+
+            num_utt = len(num_words_per_utt)
+            self.stats_num_distractors_per_utt = len(word_list) / (num_utt + self.stats_num_utt) + self.stats_num_utt / (num_utt + self.stats_num_utt) * self.stats_num_distractors_per_utt
+            self.stats_num_utt += num_utt
         elif contexts["mode"] == "get_context_word_list_shared":
             no_bias_h = torch.zeros(1, final_h.shape[-1])
             no_bias_h = no_bias_h.to(final_h.device)
@@ -107,6 +114,11 @@ class ContextEncoder(torch.nn.Module):
             #         my_mask += 1
             #         mask_h[i][my_mask] = True
             mask_h = None
+
+            num_utt = len(num_words_per_utt)
+            self.stats_num_distractors_per_utt = num_utt / (num_utt + self.stats_num_utt) * len(word_list) + self.stats_num_utt / (num_utt + self.stats_num_utt) * self.stats_num_distractors_per_utt
+            self.stats_num_utt += num_utt
+
 
         # TODO: validate this shape is correct:
         # final_h:  batch_size * max_num_words_per_utt + 1 * dim

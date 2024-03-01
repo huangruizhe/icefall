@@ -159,6 +159,7 @@ class ContextCollector(torch.utils.data.Dataset):
         self.temp_dict = None
         self.temp_rare_words = None
 
+
     def add_new_words(self, new_words_list, return_dict=False, silent=False):
         if len(new_words_list) == 0:
             if return_dict is True:
@@ -251,7 +252,7 @@ class ContextCollector(torch.utils.data.Dataset):
 
         distractors = random.sample(  # without replacement
             self.rare_words, 
-            distractors_cnt
+            distractors_cnt,
         )  # TODO: actually the context should contain both rare and common words
         # distractors = random.choices(  # random choices with replacement
         #     self.rare_words, 
@@ -260,16 +261,21 @@ class ContextCollector(torch.utils.data.Dataset):
 
         # Do some perturbation here on the distractor words
         if self.text_perturbator is not None:
-            replacement_set = string.ascii_uppercase + " '"
+            # TODO: be careful: this is only applicable for librispeech (uppercase)
+            replacement_set = string.ascii_uppercase + "'      "  # give it more chance to break the word
             distractors = self.text_perturbator.random_perturb_distractors(distractors, prob=0.05, replacement_set=replacement_set)
 
         distractors_pos = 0
         for i, rare_words in enumerate(rare_words_list):
             rare_words.extend(distractors[distractors_pos: distractors_pos + n_distractors_each[i]])
             distractors_pos += n_distractors_each[i]
+
+            if i < len(rare_words_list) - 1 and distractors_pos >= len(distractors):
+                distractors += random.sample(self.rare_words, int(sum(n_distractors_each[i:]) * 1.2))
+
             # random.shuffle(rare_words)
             # logging.info(rare_words)
-        assert distractors_pos == len(distractors)
+        # assert distractors_pos <= len(distractors)  # as we do `random_perturb_distractors`, the number of words may decrease, so this is not guaranteed to be true now. But it is still very likely to be true
 
         return rare_words_list
 
@@ -308,7 +314,7 @@ class ContextCollector(torch.utils.data.Dataset):
             rare_words_pieces_list = []
             max_pieces_len = 0
             for rare_words in rare_words_list:
-                rare_words_pieces = [self.all_words2pieces[w] if w in self.all_words2pieces else self.temp_dict[w] for w in rare_words]
+                rare_words_pieces = [self.all_words2pieces[w] if w in self.all_words2pieces else self.sp.encode(w, out_type=int) for w in rare_words]
                 if len(rare_words_pieces) > 0:
                     max_pieces_len = max(max_pieces_len, max(len(pieces) for pieces in rare_words_pieces))
                 rare_words_pieces_list.append(rare_words_pieces)
@@ -739,10 +745,12 @@ z tz
 
         return new_texts, new_rare_words
 
-    def random_perturb_distractors(words, prob=0.05, replacement_set=string.ascii_lowercase):
+    def random_perturb_distractors(self, words, prob=0.05, replacement_set=string.ascii_lowercase):
+        # We will synthesize some OOVs here
         # `words` is a list of words
 
         text = " ".join(words)
+        text = list(text)
         num_replacements = int(len(words) * prob)
         indices = random.sample(range(len(text)), num_replacements)
 
@@ -750,4 +758,5 @@ z tz
         for index in indices:
             text[index] = random.choice(replacement_set)
         
+        text = ''.join(text)
         return text.split()
