@@ -151,8 +151,8 @@ class Transducer(nn.Module):
         else:
             need_weights = False
         encoder_biasing_out, attn_enc = self.encoder_biasing_adapter[-1].forward(encoder_out, contexts_h, contexts_mask, need_weights=need_weights)
-        encoder_out = encoder_out + encoder_biasing_out
         # breakpoint()
+        encoder_out = encoder_out + encoder_biasing_out
 
         # Now for the decoder, i.e., the prediction network
         row_splits = y.shape.row_splits(1)

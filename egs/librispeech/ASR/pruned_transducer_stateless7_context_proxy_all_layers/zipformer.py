@@ -307,6 +307,9 @@ class Zipformer(EncoderInterface):
                 feature_mask=feature_masks[i],
                 src_key_padding_mask=None if mask is None else mask[..., ::ds],
             )
+            # # Check the range of tensor values: it turns out except the first layer, the outputs from the layers are between (-1, 1) and centered at 0
+            # i, x.min().item(), x.max().item(), x.mean().item(), x.std().item()
+            # tensor.min().item(), tensor.max().item(), tensor.mean().item(), tensor.std().item()
             if contexts is not None and encoder_biasing_adapters[i] is not None:
                 x_biasing_out, _ = encoder_biasing_adapters[i].forward(
                     x.permute(1, 0, 2), 

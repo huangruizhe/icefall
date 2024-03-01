@@ -852,7 +852,7 @@ def compute_loss(
     texts = batch["supervisions"]["text"]
 
     # Text perturbation
-    if True and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
+    if False and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
         new_texts, new_rare_words = context_collector.text_perturbator.perturb_texts(texts, context_collector.common_words, prob=0.5)
         old_texts = texts
         texts = new_texts
