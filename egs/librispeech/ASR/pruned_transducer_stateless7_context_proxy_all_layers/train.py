@@ -876,7 +876,8 @@ def compute_loss(
     # num_words_per_utt = num_words_per_utt.to(device)
     context_collector.temp_rare_words = None
     contexts = {
-        "mode": "get_context_word_list",
+        # "mode": "get_context_word_list",
+        "mode": "get_context_word_list_shared" if is_training else "get_context_word_list",
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,

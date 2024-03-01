@@ -11,6 +11,7 @@ from word_encoder_bert import BertEncoder
 from context_wfst import generate_context_graph_nfa
 from collections import defaultdict
 import k2
+import string
 
 
 class SentenceTokenizer:
@@ -256,6 +257,12 @@ class ContextCollector(torch.utils.data.Dataset):
         #     self.rare_words, 
         #     distractors_cnt,
         # )
+
+        # Do some perturbation here on the distractor words
+        if self.text_perturbator is not None:
+            replacement_set = string.ascii_uppercase + " '"
+            distractors = self.text_perturbator.random_perturb_distractors(distractors, prob=0.05, replacement_set=replacement_set)
+
         distractors_pos = 0
         for i, rare_words in enumerate(rare_words_list):
             rare_words.extend(distractors[distractors_pos: distractors_pos + n_distractors_each[i]])
@@ -731,3 +738,16 @@ z tz
             new_rare_words.append([_all_rare_words[w] for w in text_split if w in _all_rare_words])
 
         return new_texts, new_rare_words
+
+    def random_perturb_distractors(words, prob=0.05, replacement_set=string.ascii_lowercase):
+        # `words` is a list of words
+
+        text = " ".join(words)
+        num_replacements = int(len(words) * prob)
+        indices = random.sample(range(len(text)), num_replacements)
+
+        # Replace the chosen characters with random letters
+        for index in indices:
+            text[index] = random.choice(replacement_set)
+        
+        return text.split()

@@ -60,10 +60,13 @@ class ContextEncoder(torch.nn.Module):
             positive_mask_list:
                 For each utterance, it contains a list of indices of the words should be masked
             """
-            word_list, word_lengths, positive_mask_list = \
-                contexts["word_list"], contexts["word_lengths"], contexts["positive_mask_list"]
-            batch_size = len(positive_mask_list)
-
+            # word_list, word_lengths, positive_mask_list = \
+            #     contexts["word_list"], contexts["word_lengths"], contexts["positive_mask_list"]
+            # batch_size = len(positive_mask_list)
+            word_list, word_lengths, num_words_per_utt = \
+                contexts["word_list"], contexts["word_lengths"], contexts["num_words_per_utt"]
+            batch_size = len(num_words_per_utt)
+            
             assert word_lengths is None or word_list.size(0) == len(word_lengths)
         else:
             raise NotImplementedError
@@ -97,12 +100,13 @@ class ContextEncoder(torch.nn.Module):
 
             final_h = final_h.expand(batch_size, -1, -1)
 
-            mask_h = torch.full(False, (batch_size, final_h.shape(1)))  # TODO
-            for i, my_mask in enumerate(positive_mask_list):
-                if len(my_mask) > 0:
-                    my_mask = torch.Tensor(my_mask, dtype=int)
-                    my_mask += 1
-                    mask_h[i][my_mask] = True
+            # mask_h = torch.full(False, (batch_size, final_h.shape(1)))  # TODO
+            # for i, my_mask in enumerate(positive_mask_list):
+            #     if len(my_mask) > 0:
+            #         my_mask = torch.Tensor(my_mask, dtype=int)
+            #         my_mask += 1
+            #         mask_h[i][my_mask] = True
+            mask_h = None
 
         # TODO: validate this shape is correct:
         # final_h:  batch_size * max_num_words_per_utt + 1 * dim
