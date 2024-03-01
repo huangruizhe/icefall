@@ -57,7 +57,7 @@ echo "current path:" `pwd`
 
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_100
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri    # 11169512
-exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy   # 11169515
+exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy   # 11169515, 11169916
 
 
 mkdir -p $exp_dir
@@ -111,7 +111,7 @@ if true; then
       --is-pretrained-context-encoder false \
       --is-reused-context-encoder false \
       --is-full-context $is_full_context \
-      --n-distractors $n_distractors  --start-epoch 14 --num-epochs 40 --master-port 12357 # --start-batch 24000 # --base-lr 0.08  --master-port 12355
+      --n-distractors $n_distractors  --start-epoch 14 --num-epochs 40 --master-port 12357 # --start-batch 24000 # --base-lr 0.08  --master-port 12355 --irrelevance-learning true
 fi
 
 ####################################

@@ -145,6 +145,19 @@ class Zipformer(EncoderInterface):
             encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor
         )
 
+        # biasing_layers = [3, 5]
+        if False:
+            self.downsample_output3 = AttentionDownsample(
+                encoder_dims[3], encoder_dims[3], downsample=output_downsampling_factor
+            )
+            self.downsample_output5 = AttentionDownsample(
+                encoder_dims[3], encoder_dims[3], downsample=output_downsampling_factor
+            )
+            self.downsample_intermediate_output = [None, None, self.downsample_output3, None, self.downsample_output5]
+        else:
+            self.downsample_intermediate_output = [None, None, None, None, None]
+
+
     def _get_layer_skip_dropout_prob(self):
         if not self.training:
             return 0.0
@@ -291,6 +304,7 @@ class Zipformer(EncoderInterface):
             contexts_h, contexts_mask, encoder_biasing_adapters = contexts
             encoder_biasing_adapters = encoder_biasing_adapters[:-1]  # exclude the last one
         
+        intermediate_results = [None] * len(self.encoders)
         for i, (module, skip_module) in enumerate(
             zip(self.encoders, self.skip_modules)
         ):
@@ -318,16 +332,31 @@ class Zipformer(EncoderInterface):
                     need_weights=False
                 )
                 x = x + x_biasing_out.permute(1, 0, 2)
+                if self.downsample_intermediate_output[i] is not None:
+                    intermediate_results[i] = self.downsample_intermediate_output[i](x)
             outputs.append(x)
 
-        x = self.downsample_output(x)
+        # (Pdb) !len(outputs)
+        # 5
+        # (Pdb) outputs[-1].shape
+        # torch.Size([646, 92, 384])
+        # (Pdb) outputs[-2].shape
+        # torch.Size([646, 92, 384])
+        # (Pdb) outputs[-3].shape
+        # torch.Size([646, 92, 384])
+        # (Pdb) outputs[-4].shape
+        # torch.Size([646, 92, 384])
+        # (Pdb) outputs[-5].shape
+        # torch.Size([646, 92, 384])
+
+        x = self.downsample_output(x)  # torch.Size([646, 92, 384]) => torch.Size([323, 92, 384])
         # class Downsample has this rounding behavior..
         assert self.output_downsampling_factor == 2, self.output_downsampling_factor
         lengths = (lengths + 1) >> 1
 
         x = x.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
 
-        return x, lengths
+        return x, lengths, intermediate_results
 
 
 class ZipformerEncoderLayer(nn.Module):

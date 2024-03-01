@@ -599,9 +599,9 @@ def decode_one_batch(
         )
     else:
         if contexts is None:
-            encoder_out, encoder_out_lens = model.encoder(x=feature, x_lens=feature_lens)
+            encoder_out, encoder_out_lens, _ = model.encoder(x=feature, x_lens=feature_lens)
         else:
-            encoder_out, encoder_out_lens = model.encoder(x=feature, x_lens=feature_lens, contexts=(contexts_h, contexts_mask, model.encoder_biasing_adapter))
+            encoder_out, encoder_out_lens, _ = model.encoder(x=feature, x_lens=feature_lens, contexts=(contexts_h, contexts_mask, model.encoder_biasing_adapter))
 
     if not params.no_wfst_lm_biasing:
         fsa_list, fsa_sizes, num_words_per_utt2 = \

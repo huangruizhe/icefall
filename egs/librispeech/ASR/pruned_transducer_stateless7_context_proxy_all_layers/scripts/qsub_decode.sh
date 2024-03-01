@@ -51,9 +51,15 @@ echo "current path:" `pwd`
 
 # exp_dir=/exp/rhuang/icefall_latest/egs/librispeech/ASR/pruned_transducer_stateless7_context/exp/exp_libri_full_c-1_stage2/
 
-exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri  # 11169231, 11169507, 11169508
-# exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy  # 11169268 -- getting worse! :(
+# exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri  
+# tensorboard is in this dir
+# 11169231, 11169507, 11169508
+# 11170233, 11170374, multi-layer[3,5] without text perturbation (epoch22): nice improvement!
+# 11170230, 11170375, multi-layer[3,5] without text perturbation + shared distractors (epoch30), not improving over 11169507
 
+exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy  
+# 11169268 -- getting worse! :(
+# 11170221, 11170376 -- omg supper big improvement with multi-layer[3,5] and text perturbation (epoch38)! yey!
 
 echo
 echo "exp_dir:" $exp_dir
@@ -124,9 +130,9 @@ echo
 ####################################
 # decode transducer with contexts
 ####################################
-n_distractors=100
+n_distractors=500
 # epochs=30
-epochs=40
+epochs=38
 avgs=1
 use_averaged_model=$([ "$avgs" = 1 ] && echo "false" || echo "true")
 
