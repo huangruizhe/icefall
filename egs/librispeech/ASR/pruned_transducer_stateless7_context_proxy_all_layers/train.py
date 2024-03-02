@@ -604,7 +604,7 @@ def get_contextual_model(params: AttributeDict, decoder=None) -> nn.Module:
     #     num_heads=4,
     # )
 
-    biasing_layers = [3, 5]
+    biasing_layers = [3]
     encoder_biasing_adapters = []
     for i, qd in enumerate(params.encoder_dims.split(",")):
         if i in biasing_layers:
