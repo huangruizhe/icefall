@@ -47,6 +47,10 @@ from icefall.dist import get_rank
 from icefall.utils import is_jit_tracing, make_pad_mask
 
 
+class DummyModule(nn.Module):
+    def forward(self, x):
+        return x
+
 class Zipformer(EncoderInterface):
     """
     Args:
@@ -145,18 +149,15 @@ class Zipformer(EncoderInterface):
             encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor
         )
 
-        # biasing_layers = [3, 5]
-        if False:
-            self.downsample_output3 = AttentionDownsample(
-                encoder_dims[3], encoder_dims[3], downsample=output_downsampling_factor
-            )
-            self.downsample_output5 = AttentionDownsample(
-                encoder_dims[3], encoder_dims[3], downsample=output_downsampling_factor
-            )
-            self.downsample_intermediate_output = [None, None, self.downsample_output3, None, self.downsample_output5]
-        else:
-            self.downsample_intermediate_output = [None, None, None, None, None]
-
+        # biasing_layers = [3]
+        biasing_layers = []
+        self.downsample_intermediate_output = [DummyModule(), DummyModule(), DummyModule(), DummyModule(), DummyModule()]
+        for i in range(len(self.downsample_intermediate_output)):
+            if i in biasing_layers:
+                self.downsample_intermediate_output[i] = AttentionDownsample(
+                    encoder_dims[i], encoder_dims[i], downsample=output_downsampling_factor
+                )
+        self.downsample_intermediate_output = nn.ModuleList(self.downsample_intermediate_output)
 
     def _get_layer_skip_dropout_prob(self):
         if not self.training:
@@ -332,7 +333,7 @@ class Zipformer(EncoderInterface):
                     need_weights=False
                 )
                 x = x + x_biasing_out.permute(1, 0, 2)
-                if self.downsample_intermediate_output[i] is not None:
+                if not isinstance(self.downsample_intermediate_output[i], DummyModule):
                     intermediate_results[i] = self.downsample_intermediate_output[i](x)
             outputs.append(x)
 

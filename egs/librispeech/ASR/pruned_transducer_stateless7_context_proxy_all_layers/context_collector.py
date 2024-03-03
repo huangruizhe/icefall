@@ -7,7 +7,7 @@ import logging
 import ast
 import numpy as np
 from itertools import chain
-from word_encoder_bert import BertEncoder
+# from word_encoder_bert import BertEncoder
 from context_wfst import generate_context_graph_nfa
 from collections import defaultdict
 import k2
@@ -37,7 +37,7 @@ class ContextCollector(torch.utils.data.Dataset):
         self, 
         path_is21_deep_bias: Path,
         sp: Union[spm.SentencePieceProcessor, SentenceTokenizer],
-        bert_encoder: BertEncoder = None,
+        bert_encoder = None,
         n_distractors: int = 100,
         ratio_distractors: int = None,
         is_predefined: bool = False,
@@ -81,8 +81,11 @@ class ContextCollector(torch.utils.data.Dataset):
         self.common_words = set(self.common_words)
         self.rare_words = set(self.rare_words)
 
-        logging.info(f"Number of common words: {len(self.common_words)}. Examples: {random.sample(self.common_words, 5)}")
-        logging.info(f"Number of rare words: {len(self.rare_words)}. Examples: {random.sample(self.rare_words, 5)}")
+        self.common_words_list = list(self.common_words)
+        self.rare_words_list = list(self.rare_words)
+
+        logging.info(f"Number of common words: {len(self.common_words)}. Examples: {random.sample(self.common_words_list, 5)}")
+        logging.info(f"Number of rare words: {len(self.rare_words)}. Examples: {random.sample(self.rare_words_list, 5)}")
         logging.info(f"Number of all words: {len(self.all_words)}. Examples: {random.sample(self.all_words, 5)}")
         
         self.test_clean_biasing_list = None
@@ -251,7 +254,7 @@ class ContextCollector(torch.utils.data.Dataset):
         distractors_cnt = n_distractors_each.sum()
 
         distractors = random.sample(  # without replacement
-            self.rare_words, 
+            self.rare_words_list, 
             distractors_cnt,
         )  # TODO: actually the context should contain both rare and common words
         # distractors = random.choices(  # random choices with replacement
@@ -271,7 +274,7 @@ class ContextCollector(torch.utils.data.Dataset):
             distractors_pos += n_distractors_each[i]
 
             if i < len(rare_words_list) - 1 and distractors_pos >= len(distractors):
-                distractors += random.sample(self.rare_words, int(sum(n_distractors_each[i:]) * 1.2))
+                distractors += random.sample(self.rare_words_list, int(sum(n_distractors_each[i:]) * 1.2))
 
             # random.shuffle(rare_words)
             # logging.info(rare_words)
