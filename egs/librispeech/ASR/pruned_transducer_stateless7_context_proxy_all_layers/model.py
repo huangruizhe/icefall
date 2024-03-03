@@ -88,18 +88,18 @@ class Transducer(nn.Module):
         self.use_ctc = False
         if self.use_ctc:  
             i_dim3 = self.encoder.encoder_dims[3]
-            i_dim5 = self.encoder.encoder_dims[5]
+            # i_dim5 = self.encoder.encoder_dims[5]
             # Modules for CTC head
             self.ctc_output3 = nn.Sequential(
                 nn.Dropout(p=0.1),
                 nn.Linear(i_dim3, vocab_size),
                 nn.LogSoftmax(dim=-1),
             )
-            self.ctc_output5 = nn.Sequential(
-                nn.Dropout(p=0.1),
-                nn.Linear(i_dim5, vocab_size),
-                nn.LogSoftmax(dim=-1),
-            )
+            # self.ctc_output5 = nn.Sequential(
+            #     nn.Dropout(p=0.1),
+            #     nn.Linear(i_dim5, vocab_size),
+            #     nn.LogSoftmax(dim=-1),
+            # )
 
     def forward(
         self,
@@ -166,26 +166,27 @@ class Transducer(nn.Module):
             row_splits = y.shape.row_splits(1)
             y_lens = row_splits[1:] - row_splits[:-1]
 
-            ctc_output3 = self.ctc_output3(intermediate_out[3])  # (N, T, C)
-            ctc_output5 = self.ctc_output5(intermediate_out[5])  # (N, T, C)
+            ctc_output3 = self.ctc_output3(intermediate_out[3])  # (T, N, C)
+            # ctc_output5 = self.ctc_output5(intermediate_out[5])  # (T, N, C)
 
             ctc_loss3 = torch.nn.functional.ctc_loss(
-                log_probs=ctc_output3.permute(1, 0, 2),  # (T, N, C)
+                log_probs=ctc_output3,
                 targets=targets,
                 input_lengths=x_lens,
                 target_lengths=y_lens,
                 reduction="sum",
             )
-            ctc_loss5 = torch.nn.functional.ctc_loss(
-                log_probs=ctc_output5.permute(1, 0, 2),  # (T, N, C)
-                targets=targets,
-                input_lengths=x_lens,
-                target_lengths=y_lens,
-                reduction="sum",
-            )
-            ctc_loss = (ctc_loss3 + ctc_loss5)/2
+            # ctc_loss5 = torch.nn.functional.ctc_loss(
+            #     log_probs=ctc_output5,
+            #     targets=targets,
+            #     input_lengths=x_lens,
+            #     target_lengths=y_lens,
+            #     reduction="sum",
+            # )
+            # ctc_loss = (ctc_loss3 + ctc_loss5)/2
+            ctc_loss = ctc_loss3
         else:
-            ctc_loss = torch.empty(0)
+            ctc_loss = torch.tensor(0).to(encoder_out.device)
             
         # assert x.size(0) == contexts_h.size(0) == contexts_mask.size(0)
         # assert contexts_h.ndim == 3
