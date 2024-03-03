@@ -604,7 +604,7 @@ def get_contextual_model(params: AttributeDict, decoder=None) -> nn.Module:
     #     num_heads=4,
     # )
 
-    biasing_layers = [3]
+    biasing_layers = []
     encoder_biasing_adapters = []
     for i, qd in enumerate(params.encoder_dims.split(",")):
         if i in biasing_layers:
@@ -876,8 +876,8 @@ def compute_loss(
     # num_words_per_utt = num_words_per_utt.to(device)
     context_collector.temp_rare_words = None
     contexts = {
-        # "mode": "get_context_word_list",
-        "mode": "get_context_word_list_shared" if is_training and context_collector.n_distractors > 0 else "get_context_word_list",
+        "mode": "get_context_word_list",
+        # "mode": "get_context_word_list_shared" if is_training and context_collector.n_distractors > 0 else "get_context_word_list",
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,

@@ -185,7 +185,7 @@ class Transducer(nn.Module):
             )
             ctc_loss = (ctc_loss3 + ctc_loss5)/2
         else:
-            ctc_loss = torch.empty(0)
+            ctc_loss = torch.tensor(0).to(encoder_out.device)
             
         # assert x.size(0) == contexts_h.size(0) == contexts_mask.size(0)
         # assert contexts_h.ndim == 3
