@@ -43,7 +43,8 @@ elif [ $align == "torchaudio" ]; then
     echo "Start to align $part"
     lhotse workflows align-with-torchaudio --dont-normalize-text \
       $cuts_in_dir/librispeech_cuts_${part}.jsonl.gz \
-      $cuts_out_dir/librispeech_cuts_${part}.jsonl.gz
+      $cuts_out_dir/librispeech_cuts_${part}.jsonl.gz \
+      --device "cuda"
   done
   echo "Finished"
 else

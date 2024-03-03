@@ -76,8 +76,8 @@ from context_encoder import ContextEncoder
 from context_encoder_lstm import ContextEncoderLSTM
 from context_encoder_pretrained import ContextEncoderPretrained
 from context_encoder_reused import ContextEncoderReused
-from word_encoder_bert import BertEncoder
-from word_encoder_fasttext import FastTextEncoder
+# from word_encoder_bert import BertEncoder
+# from word_encoder_fasttext import FastTextEncoder
 from biasing_module import BiasingModule
 from context_collector import ContextCollector
 
@@ -446,6 +446,13 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--use-proxy",
+        type=str2bool,
+        default=False,
+        help="The model will learn massively about negative examples, where it needs to always choose <no-bias>",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -604,7 +611,7 @@ def get_contextual_model(params: AttributeDict, decoder=None) -> nn.Module:
     #     num_heads=4,
     # )
 
-    biasing_layers = []
+    biasing_layers = [3]  # modify model.py and zipformer.py accordingly!
     encoder_biasing_adapters = []
     for i, qd in enumerate(params.encoder_dims.split(",")):
         if i in biasing_layers:
@@ -852,7 +859,7 @@ def compute_loss(
     texts = batch["supervisions"]["text"]
 
     # Text perturbation
-    if False and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
+    if params.use_proxy and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
         new_texts, new_rare_words = context_collector.text_perturbator.perturb_texts(texts, context_collector.common_words, prob=0.5)
         old_texts = texts
         texts = new_texts

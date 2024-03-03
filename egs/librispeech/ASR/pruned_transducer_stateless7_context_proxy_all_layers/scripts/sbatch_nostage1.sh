@@ -46,26 +46,52 @@ cd /home/rhuang25/work/icefall/egs/librispeech/ASR/
 # train ctc with rnnt aux loss
 ####################################
 
-exp_dir=zipformer/exp-ctc-rnnt
+exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_nostage1  # 10139636
+
+mkdir -p $exp_dir
+
+# path_to_pretrained_asr_model=/exp/rhuang/librispeech/pretrained2/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/
+path_to_pretrained_asr_model=/scratch4/skhudan1/rhuang25/icefall/egs/librispeech/ASR/download/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11
+
+# From pretrained ASR model
+if [ ! -f $exp_dir/epoch-1.pt ]; then
+  ln -s $path_to_pretrained_asr_model/exp/pretrained.pt $exp_dir/epoch-1.pt
+fi
 
 echo
 echo "exp_dir:" $exp_dir
 echo
 
-python zipformer/train.py \
-  --world-size 4 \
-  --num-epochs 40 \
-  --start-epoch 1 \
-  --use-fp16 true \
-  --master-port 12535 \
-  --causal false \
-  --full-libri true \
-  --use-transducer true \
-  --use-ctc true \
-  --ctc-loss-scale 0.2 \
-  --exp-dir $exp_dir \
-  --max-duration 1200 # \
-  # --start-epoch 35
+if true; then
+    # # stage 1:
+    # max_duration=1200
+    # # max_duration=400  # libri100
+    # n_distractors=0
+    # is_full_context=true
+
+    # stage 2:
+    max_duration=1200
+    # max_duration=400  # libri100
+    n_distractors=100
+    is_full_context=false
+
+    python pruned_transducer_stateless7_context_proxy_all_layers/train.py \
+      --world-size 4 \
+      --use-fp16 true \
+      --max-duration $max_duration \
+      --exp-dir $exp_dir \
+      --bpe-model "data/lang_bpe_500/bpe.model" \
+      --prune-range 5 \
+      --full-libri true \
+      --context-dir "data/fbai-speech/is21_deep_bias/" \
+      --keep-ratio 1.0 \
+      --start-epoch 2 \
+      --num-epochs 30 \
+      --is-pretrained-context-encoder false \
+      --is-reused-context-encoder false \
+      --is-full-context $is_full_context \
+      --n-distractors $n_distractors  --use-proxy true --master-port 12357 # --use-proxy true --start-batch 24000 # --base-lr 0.08  --master-port 12355 --irrelevance-learning true
+fi
 
 echo "Done: `date`"
 
