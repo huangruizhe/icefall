@@ -85,7 +85,7 @@ class Transducer(nn.Module):
         self.no_wfst_lm_biasing = None
         self.params = None
 
-        self.use_ctc = False
+        self.use_ctc = True
         if self.use_ctc:  
             i_dim3 = self.encoder.encoder_dims[3]
             # i_dim5 = self.encoder.encoder_dims[5]

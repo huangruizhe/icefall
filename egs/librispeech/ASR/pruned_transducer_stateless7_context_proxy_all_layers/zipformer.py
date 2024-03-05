@@ -47,10 +47,6 @@ from icefall.dist import get_rank
 from icefall.utils import is_jit_tracing, make_pad_mask
 
 
-class DummyModule(nn.Module):
-    def forward(self, x):
-        return x
-
 class Zipformer(EncoderInterface):
     """
     Args:
@@ -149,9 +145,9 @@ class Zipformer(EncoderInterface):
             encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor
         )
 
-        # biasing_layers = [3]
-        biasing_layers = []
-        self.downsample_intermediate_output = [DummyModule(), DummyModule(), DummyModule(), DummyModule(), DummyModule()]
+        biasing_layers = [3]
+        # biasing_layers = []
+        self.downsample_intermediate_output = [None] * len(self.encoder_dims)
         for i in range(len(self.downsample_intermediate_output)):
             if i in biasing_layers:
                 self.downsample_intermediate_output[i] = AttentionDownsample(
@@ -333,7 +329,7 @@ class Zipformer(EncoderInterface):
                     need_weights=False
                 )
                 x = x + x_biasing_out.permute(1, 0, 2)
-                if not isinstance(self.downsample_intermediate_output[i], DummyModule):
+                if self.downsample_intermediate_output[i] is not None:
                     intermediate_results[i] = self.downsample_intermediate_output[i](x)
             outputs.append(x)
 

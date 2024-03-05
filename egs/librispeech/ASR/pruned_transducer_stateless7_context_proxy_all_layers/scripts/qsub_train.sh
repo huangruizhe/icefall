@@ -58,9 +58,9 @@ echo "current path:" `pwd`
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_100
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri2   # baseline, no biasing
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri    # 11169512
-exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy   # 11169515, 11169916
+# exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy   # 11169515, 11169916
 # exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_34
-# exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc
+exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc  # 11171405
 
 
 mkdir -p $exp_dir
@@ -100,7 +100,7 @@ if true; then
     n_distractors=100
     is_full_context=false
 
-    python /exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/train.py \
+    python pruned_transducer_stateless7_context_proxy_all_layers/train.py \
       --world-size 4 \
       --use-fp16 true \
       --max-duration $max_duration \
@@ -115,7 +115,7 @@ if true; then
       --is-pretrained-context-encoder false \
       --is-reused-context-encoder false \
       --is-full-context $is_full_context \
-      --n-distractors $n_distractors  --start-epoch 14 --num-epochs 40 --master-port 12357 # --use-proxy true --start-batch 24000 # --base-lr 0.08  --master-port 12355 --irrelevance-learning true
+      --n-distractors $n_distractors  --start-epoch 14 --num-epochs 40 --master-port 12357 --use-proxy true # --start-batch 24000 # --base-lr 0.08  --master-port 12355 --irrelevance-learning true
 fi
 
 ####################################
@@ -179,3 +179,4 @@ fi
 #     print(torch.any(torch.isnan(attn_output_weights) | torch.isinf(attn_output_weights)))
 #     output = md.proj_out(attn_output)
 #     print(torch.any(torch.isnan(output) | torch.isinf(output)))
+

@@ -628,6 +628,9 @@ def decode_one_batch(
         # !attn[i].argmax(dim=1)
         # !attn[i].max(dim=1)
 
+        # !vals, ids = attn[49].max(-1)
+        # !for j,  (i, v) in enumerate(zip(ids.tolist(), vals.tolist())):  print(j, i, v)
+
     hyps = []
 
     if params.decoding_method == "fast_beam_search":
@@ -840,6 +843,9 @@ def decode_dataset(
         #     logging.info(cut_ids.index("1998-29455-0019-602"))
         #     # import pdb; pdb.set_trace()
         # else:
+        #     continue
+
+        # if "1089-134691-0010-2153" not in cut_ids:
         #     continue
 
         hyps_dict = decode_one_batch(
