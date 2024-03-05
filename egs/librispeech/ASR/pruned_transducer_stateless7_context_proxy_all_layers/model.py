@@ -85,7 +85,8 @@ class Transducer(nn.Module):
         self.no_wfst_lm_biasing = None
         self.params = None
 
-        self.use_ctc = True
+        # Apply ctc loss on the layer output (biased)
+        self.use_ctc = False
         if self.use_ctc:  
             i_dim3 = self.encoder.encoder_dims[3]
             # i_dim5 = self.encoder.encoder_dims[5]
@@ -100,6 +101,24 @@ class Transducer(nn.Module):
             #     nn.Linear(i_dim5, vocab_size),
             #     nn.LogSoftmax(dim=-1),
             # )
+        
+        # Apply ctc loss on the `encoder_biasing_out` term only
+        self.use_ctc2 = True
+        if self.use_ctc2:
+            self.i_ctc2_layers = [3, 5]
+            self.ctc2_outputs = [None] * (len(self.encoder.encoder_dims) + 1)
+            for i in range(len(self.encoder.encoder_dims) + 1):
+                if i in self.i_ctc2_layers:
+                    j = i if i < len(self.encoder.encoder_dims) else -1
+                    self.ctc2_outputs[i] = nn.Sequential(
+                        nn.Dropout(p=0.1),
+                        nn.Linear(self.encoder.encoder_dims[j], self.encoder.encoder_dims[j]),
+                        nn.Tanh(),
+                        nn.Dropout(p=0.1),
+                        nn.Linear(self.encoder.encoder_dims[j], vocab_size),
+                        nn.LogSoftmax(dim=-1),
+                    )
+            self.ctc2_outputs = nn.ModuleList(self.ctc2_outputs)
 
     def forward(
         self,
@@ -187,7 +206,7 @@ class Transducer(nn.Module):
             ctc_loss = ctc_loss3
         else:
             ctc_loss = torch.tensor(0).to(encoder_out.device)
-            
+
         # assert x.size(0) == contexts_h.size(0) == contexts_mask.size(0)
         # assert contexts_h.ndim == 3
         # assert contexts_h.ndim == 2
@@ -198,6 +217,43 @@ class Transducer(nn.Module):
         encoder_biasing_out, attn_enc = self.encoder_biasing_adapter[-1].forward(encoder_out, contexts_h, contexts_mask, need_weights=need_weights)
         # breakpoint()
         encoder_out = encoder_out + encoder_biasing_out
+
+        if self.use_ctc2:  # Apply ctc loss on the `encoder_biasing_out` term only
+            assert not self.use_ctc
+            y_rare = contexts['y_rare']
+            targets = y_rare.values
+
+            row_splits = y_rare.shape.row_splits(1)
+            y_lens = row_splits[1:] - row_splits[:-1]
+
+            ctc_loss = torch.tensor(0).to(encoder_out.device)
+
+            for i in range(len(self.encoder.encoder_dims)):
+                if self.ctc2_outputs[i] is not None:
+                    assert intermediate_out[i] is not None
+                    ctc2_output = self.ctc2_outputs[i](intermediate_out[i])  # (T,N,C)
+                    ctc_loss = ctc_loss + torch.nn.functional.ctc_loss(
+                        log_probs=ctc2_output,
+                        targets=targets,
+                        input_lengths=x_lens,
+                        target_lengths=y_lens,
+                        reduction="sum",
+                    )
+
+            i = len(self.encoder.encoder_dims)
+            if self.ctc2_outputs[i] is not None:
+                ctc2_output = self.ctc2_outputs[i](encoder_biasing_out.permute(1, 0, 2))  # (T,N,C)
+                ctc_loss = ctc_loss + torch.nn.functional.ctc_loss(
+                    log_probs=ctc2_output,
+                    targets=targets,
+                    input_lengths=x_lens,
+                    target_lengths=y_lens,
+                    reduction="sum",
+                )
+            
+            ctc_loss = ctc_loss / len(self.i_ctc2_layers)
+        else:
+            ctc_loss = torch.tensor(0).to(encoder_out.device)
 
         # Now for the decoder, i.e., the prediction network
         row_splits = y.shape.row_splits(1)

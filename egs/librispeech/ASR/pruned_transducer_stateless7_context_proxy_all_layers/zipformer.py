@@ -328,9 +328,12 @@ class Zipformer(EncoderInterface):
                     contexts_mask, 
                     need_weights=False
                 )
-                x = x + x_biasing_out.permute(1, 0, 2)
                 if self.downsample_intermediate_output[i] is not None:
-                    intermediate_results[i] = self.downsample_intermediate_output[i](x)
+                    intermediate_results[i] = self.downsample_intermediate_output[i](x_biasing_out.permute(1, 0, 2))  # (T, N, C)
+                    # intermediate_results[i] = x_biasing_out.permute(1, 0, 2)  # (T, N, C)
+                x = x + x_biasing_out.permute(1, 0, 2)
+                # if self.downsample_intermediate_output[i] is not None:
+                #     intermediate_results[i] = self.downsample_intermediate_output[i](x)
             outputs.append(x)
 
         # (Pdb) !len(outputs)

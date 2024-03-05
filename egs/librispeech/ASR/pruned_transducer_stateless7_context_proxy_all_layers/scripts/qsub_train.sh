@@ -60,7 +60,8 @@ echo "current path:" `pwd`
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri    # 11169512
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy   # 11169515, 11169916
 # exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_34
-exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc  # 11171405
+# exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc  # 11171405, log-train-2024-03-04-02-10-27-2, 
+exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc  # 11171405, 
 
 
 mkdir -p $exp_dir

@@ -876,6 +876,9 @@ def compute_loss(
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y).to(device)
 
+    y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
+    y_rare = k2.RaggedTensor(y_rare).to(device)
+
     word_list, word_lengths, num_words_per_utt = \
         context_collector.get_context_word_list(batch)
     word_list = word_list.to(device)
@@ -888,6 +891,7 @@ def compute_loss(
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,
+        "y_rare": y_rare,
     }
 
     with torch.set_grad_enabled(is_training):
@@ -1301,9 +1305,9 @@ def run(rank, world_size, args):
 
     if params.start_epoch > 2:  # params.start_epoch == 2 is reserved for loading the pretrained ASR model without biasing
         logging.info("Loading optimizer and scheduler states")
-        if checkpoints and "optimizer" in checkpoints:
-            logging.info("Loading optimizer state dict")
-            optimizer.load_state_dict(checkpoints["optimizer"])
+        # if checkpoints and "optimizer" in checkpoints:
+        #     logging.info("Loading optimizer state dict")
+        #     optimizer.load_state_dict(checkpoints["optimizer"])
 
         if (
             checkpoints

@@ -194,6 +194,9 @@ class ContextCollector(torch.utils.data.Dataset):
     def discard_some_common_words(words, keep_ratio):
         pass
 
+    def remove_common_words_from_texts(self, texts):
+        return [" ".join([word for word in text.split() if word not in self.common_words]) for text in texts]
+
     def _get_random_word_lists(self, batch):
         texts = batch["supervisions"]["text"]
 
