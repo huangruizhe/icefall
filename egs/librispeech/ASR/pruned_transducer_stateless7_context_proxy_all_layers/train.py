@@ -514,7 +514,8 @@ def get_params() -> AttributeDict:
             "batch_idx_train": 0,
             "log_interval": 50,
             "reset_interval": 200,
-            "valid_interval": 2000,  # For the 100h subset, use 800
+            # "valid_interval": 2000,  # For the 100h subset, use 800
+            "valid_interval": 1200,
             # parameters for zipformer
             "feature_dim": 80,
             "subsampling_factor": 4,  # not passed in, this is fixed.
@@ -876,8 +877,8 @@ def compute_loss(
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y).to(device)
 
-    y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
-    y_rare = k2.RaggedTensor(y_rare).to(device)
+    # y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
+    # y_rare = k2.RaggedTensor(y_rare).to(device)
 
     word_list, word_lengths, num_words_per_utt = \
         context_collector.get_context_word_list(batch)
@@ -885,14 +886,22 @@ def compute_loss(
     # word_lengths = word_lengths.to(device)
     # num_words_per_utt = num_words_per_utt.to(device)
     context_collector.temp_rare_words = None
+    gt_rare_words_indices = context_collector.gt_rare_words_indices
+    # unmerged_rare_words_list = context_collector.unmerged_rare_words_list
     contexts = {
         "mode": "get_context_word_list",
         # "mode": "get_context_word_list_shared" if is_training and context_collector.n_distractors > 0 else "get_context_word_list",
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,
-        "y_rare": y_rare,
+        # "y_rare": y_rare,
+        "gt_rare_words_indices": gt_rare_words_indices,
     }
+
+    _model = model.module if isinstance(model, DDP) else model
+    _model.encoder.eval()  # TODO: This is important!
+    _model.encoder.eval()
+    _model.joiner.eval()
 
     with torch.set_grad_enabled(is_training):
         simple_loss, pruned_loss, ctc_loss = model(
@@ -918,8 +927,13 @@ def compute_loss(
             if batch_idx_train >= warm_step
             else 0.1 + 0.9 * (batch_idx_train / warm_step)
         )
+        ctc_loss_scale = (
+            1.0
+            if batch_idx_train >= warm_step
+            else 0.1 + 0.9 * (batch_idx_train / warm_step)
+        )
 
-        loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss + 0.3 * ctc_loss
+        loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss + 0.12 * ctc_loss  # 0.07
 
     assert loss.requires_grad == is_training
 
@@ -1048,6 +1062,7 @@ def train_one_epoch(
 
             # NOTE: We use reduction==sum and loss is computed over utterances
             # in the batch and there is no normalization to it so far.
+            
             scaler.scale(loss).backward()
             set_batch_count(model, params.batch_idx_train)
             scheduler.step_batch(params.batch_idx_train)
@@ -1163,6 +1178,10 @@ def train_one_epoch(
                 valid_info.write_summary(
                     tb_writer, "train/valid_", params.batch_idx_train
                 )
+            
+            _model = model.module if isinstance(model, DDP) else model
+            if _model.use_ctc3 and _model.priors_T > 0:
+                _model.gather_and_update_priors(is_ddp=isinstance(model, DDP))
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value

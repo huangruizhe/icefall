@@ -161,7 +161,8 @@ class ContextCollector(torch.utils.data.Dataset):
 
         self.temp_dict = None
         self.temp_rare_words = None
-
+        self.gt_rare_words_indices = None
+        self.unmerged_rare_words_list = None
 
     def add_new_words(self, new_words_list, return_dict=False, silent=False):
         if len(new_words_list) == 0:
@@ -315,6 +316,14 @@ class ContextCollector(torch.utils.data.Dataset):
         else:
             rare_words_list = self._get_random_word_lists(batch)
         
+        # get the indices of the gt rare words
+        gt_rare_words_indices = []
+        for j, text in enumerate(batch["supervisions"]["text"]):
+            my_dict = {w: i for i, w in enumerate(rare_words_list[j])}
+            gt_rare_words_indices.append([my_dict[w] for w in text.split() if w in my_dict])
+        self.gt_rare_words_indices = gt_rare_words_indices  # Don't forget to "add one" when using it in the biasing module
+        self.unmerged_rare_words_list = rare_words_list
+
         if self.all_words2embeddings is None:
             # Use SentencePiece to encode the words
             rare_words_pieces_list = []

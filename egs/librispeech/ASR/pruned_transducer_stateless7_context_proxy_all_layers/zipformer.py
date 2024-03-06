@@ -145,15 +145,17 @@ class Zipformer(EncoderInterface):
             encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor
         )
 
-        biasing_layers = [3]
+        self.biasing_layers = [3]
         # biasing_layers = []
         self.downsample_intermediate_output = [None] * len(self.encoder_dims)
         for i in range(len(self.downsample_intermediate_output)):
-            if i in biasing_layers:
+            if i in self.biasing_layers:
                 self.downsample_intermediate_output[i] = AttentionDownsample(
                     encoder_dims[i], encoder_dims[i], downsample=output_downsampling_factor
                 )
         self.downsample_intermediate_output = nn.ModuleList(self.downsample_intermediate_output)
+        self.intermediate_x_lens = [None] * len(self.encoder_dims)
+        self.need_attn_weights = False
 
     def _get_layer_skip_dropout_prob(self):
         if not self.training:
@@ -322,16 +324,26 @@ class Zipformer(EncoderInterface):
             # i, x.min().item(), x.max().item(), x.mean().item(), x.std().item()
             # tensor.min().item(), tensor.max().item(), tensor.mean().item(), tensor.std().item()
             if contexts is not None and encoder_biasing_adapters[i] is not None:
-                x_biasing_out, _ = encoder_biasing_adapters[i].forward(
+                x_biasing_out, attn_weights = encoder_biasing_adapters[i].forward(
                     x.permute(1, 0, 2), 
                     contexts_h, 
                     contexts_mask, 
-                    need_weights=False
+                    need_weights=self.need_attn_weights,
                 )
-                if self.downsample_intermediate_output[i] is not None:
-                    intermediate_results[i] = self.downsample_intermediate_output[i](x_biasing_out.permute(1, 0, 2))  # (T, N, C)
-                    # intermediate_results[i] = x_biasing_out.permute(1, 0, 2)  # (T, N, C)
+
+                # # Apply ctc loss to the `x_biasing_out` term only
+                # if self.downsample_intermediate_output[i] is not None:
+                #     intermediate_results[i] = self.downsample_intermediate_output[i](x_biasing_out.permute(1, 0, 2))  # (T, N, C)
+                #     # intermediate_results[i] = x_biasing_out.permute(1, 0, 2)  # (T, N, C)
+
+                # Apply ctc loss to the attn weights
+                if i in self.biasing_layers:
+                    intermediate_results[i] = attn_weights
+                    self.intermediate_x_lens[i] = lengths
+
                 x = x + x_biasing_out.permute(1, 0, 2)
+
+                # # Apply ctc loss to the layer output
                 # if self.downsample_intermediate_output[i] is not None:
                 #     intermediate_results[i] = self.downsample_intermediate_output[i](x)
             outputs.append(x)

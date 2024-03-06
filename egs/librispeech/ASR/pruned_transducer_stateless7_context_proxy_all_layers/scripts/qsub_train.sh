@@ -61,7 +61,8 @@ echo "current path:" `pwd`
 # exp_dir=/exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy   # 11169515, 11169916
 # exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_34
 # exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc  # 11171405, log-train-2024-03-04-02-10-27-2, 
-exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc  # 11171405, 
+# exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc  # 11171405, log-train-2024-03-04-21-22-31-0
+exp_dir=pruned_transducer_stateless7_context_proxy_all_layers/exp/exp_libri_proxy_3ctc_attn  #
 
 
 mkdir -p $exp_dir
@@ -90,16 +91,16 @@ fi
 
 if true; then
     # # stage 1:
-    # max_duration=1200
-    # # max_duration=400  # libri100
-    # n_distractors=0
-    # is_full_context=true
-
-    # stage 2:
     max_duration=1200
     # max_duration=400  # libri100
-    n_distractors=100
-    is_full_context=false
+    n_distractors=0
+    is_full_context=true
+
+    # stage 2:
+    # max_duration=1200
+    # # max_duration=400  # libri100
+    # n_distractors=100
+    # is_full_context=false
 
     python pruned_transducer_stateless7_context_proxy_all_layers/train.py \
       --world-size 4 \

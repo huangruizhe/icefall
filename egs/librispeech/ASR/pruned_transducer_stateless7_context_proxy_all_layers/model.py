@@ -26,6 +26,14 @@ from scaling import penalize_abs_values_gt
 from icefall.utils import add_sos
 from typing import Union, List
 
+import sys
+sys.path.insert(0,'/exp/rhuang/meta/ctc')
+import ctc as ctc_primer
+import torch.distributed as dist
+import logging
+from torch.nn.utils.rnn import pad_sequence
+
+
 class Transducer(nn.Module):
     """It implements https://arxiv.org/pdf/1211.3711.pdf
     "Sequence Transduction with Recurrent Neural Networks"
@@ -103,7 +111,7 @@ class Transducer(nn.Module):
             # )
         
         # Apply ctc loss on the `encoder_biasing_out` term only
-        self.use_ctc2 = True
+        self.use_ctc2 = False
         if self.use_ctc2:
             self.i_ctc2_layers = [3, 5]
             self.ctc2_outputs = [None] * (len(self.encoder.encoder_dims) + 1)
@@ -119,7 +127,274 @@ class Transducer(nn.Module):
                         nn.LogSoftmax(dim=-1),
                     )
             self.ctc2_outputs = nn.ModuleList(self.ctc2_outputs)
+        
+        # Apply ctc loss on the attention weights
+        self.use_ctc3 = True
+        if self.use_ctc3:
+            self.i_ctc3_layers = [3, 5]
+            
+            self.priors_T = 0
+            self.log_priors = None  # (D,)
+            self.log_priors_sum = None  # (1, D)
+            self.max_dim = 150
 
+
+    def pad_probs(self, probs, dim, pad_value=0):
+        # Given a tensor of dimensions (*,D), 
+        # Let's make it of size (*, D') where D'>=D or D'<D, and we can pad 0s if needed
+        
+        if probs.size(-1) == dim:
+            return probs
+        elif probs.size(-1) < dim:
+            padding_size = dim - probs.size(1)
+            return torch.nn.functional.pad(probs, (0, padding_size), 'constant', pad_value)
+        else:
+            return probs[:, :dim]
+
+
+    def forward_ctc_primer(self, log_probs, targets, input_lengths, target_lengths, prior_scaling_factor=0.3, is_training=True):
+        if targets.dim() == 1:
+            segments = targets.split(target_lengths.tolist())
+            targets = pad_sequence(
+                segments,
+                batch_first=True, 
+                # padding_value=0,
+            ).to(log_probs.device)
+        
+        log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) -> (N, T, C)
+        
+        if True and is_training:
+            log_probs_flattened = []
+            for lp, le in zip(log_probs, input_lengths):
+                log_probs_flattened.append(lp[:int(le.item())])      
+            log_probs_flattened = torch.cat(log_probs_flattened, 0)  # (T, C)
+
+            # Note, the log_probs here is already log_softmax'ed.
+            T = log_probs_flattened.size(0)
+            self.priors_T += T
+            log_batch_priors_sum = torch.logsumexp(log_probs_flattened, dim=0, keepdim=True)
+            log_batch_priors_sum = log_batch_priors_sum.detach()
+            log_batch_priors_sum = self.pad_probs(log_batch_priors_sum, self.max_dim, pad_value=-50.0)
+            if self.log_priors_sum is None:
+                self.log_priors_sum = log_batch_priors_sum
+            else:
+                _temp = torch.stack([self.log_priors_sum, log_batch_priors_sum], dim=-1)
+                self.log_priors_sum = torch.logsumexp(_temp, dim=-1)
+
+        if True and self.log_priors is not None and prior_scaling_factor > 0:
+            log_priors = self.log_priors.view(1,1,-1)
+            log_priors = log_priors[:, :, :log_probs.size(-1)]
+            # print(f"log_probs.shape: {log_probs.shape}")
+            # print(f"log_priors.shape: {log_priors.shape}")
+            log_probs = log_probs - log_priors * prior_scaling_factor
+        
+        log_probs = log_probs.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
+        input_lengths = input_lengths.to(log_probs.device)
+        target_lengths = target_lengths.to(log_probs.device)        
+        loss = ctc_primer.ctc_loss(log_probs, targets.to(torch.int64), input_lengths.to(torch.int64), target_lengths.to(torch.int64), blank = 0, reduction = 'none').sum()
+        return loss
+
+    def encode_supervisions(self, targets, target_lengths, input_lengths):
+        batch_size = len(target_lengths)
+        supervision_segments = torch.stack(
+            (
+                torch.arange(batch_size),
+                torch.zeros(batch_size),
+                input_lengths.cpu(),
+            ),
+            1,
+        ).to(torch.int32)
+
+        indices = torch.argsort(supervision_segments[:, 2], descending=True)
+        supervision_segments = supervision_segments[indices]
+        # import pdb; pdb.set_trace()
+
+        # res = targets[indices].tolist()
+        # res_lengths = target_lengths[indices].tolist()
+        # res = [[i + 1 for i in l[:l_len]] for l, l_len in zip(res, res_lengths)]  # hard-coded for torchaudio
+        res = [targets[i] for i in indices.tolist()]
+
+        return supervision_segments, res, indices
+
+    def forward_k2(self, log_probs, targets, input_lengths, target_lengths, prior_scaling_factor=0.3, is_training=True):
+        if targets.dim() == 1:
+            targets = targets.split(target_lengths.tolist())
+
+        # Be careful: the targets here are already padded! We need to remove paddings from it
+        supervision_segments, new_targets, indices = self.encode_supervisions(targets, target_lengths, input_lengths)
+        
+        new_targets = [t.tolist() for t in new_targets]
+        decoding_graph = k2.ctc_graph(new_targets, modified=False, device=log_probs.device)
+
+        log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
+
+        if True and is_training:
+            log_probs_flattened = []
+            for lp, le in zip(log_probs, input_lengths):
+                log_probs_flattened.append(lp[:int(le.item())])      
+            log_probs_flattened = torch.cat(log_probs_flattened, 0)  # (T, C)
+
+            # Note, the log_probs here is already log_softmax'ed.
+            T = log_probs_flattened.size(0)
+            self.priors_T += T
+            log_batch_priors_sum = torch.logsumexp(log_probs_flattened, dim=0, keepdim=True)
+            log_batch_priors_sum = log_batch_priors_sum.detach()
+            log_batch_priors_sum = self.pad_probs(log_batch_priors_sum, self.max_dim, pad_value=-50.0)
+            if self.log_priors_sum is None:
+                self.log_priors_sum = log_batch_priors_sum
+            else:
+                _temp = torch.stack([self.log_priors_sum, log_batch_priors_sum], dim=-1)
+                self.log_priors_sum = torch.logsumexp(_temp, dim=-1)
+
+        if True and self.log_priors is not None and prior_scaling_factor > 0:
+            log_priors = self.log_priors.view(1,1,-1)
+            log_priors = log_priors[:, :, :log_probs.size(-1)]
+            # print(f"log_probs.shape: {log_probs.shape}")
+            # print(f"log_priors.shape: {log_priors.shape}")
+            log_probs = log_probs - log_priors * prior_scaling_factor
+
+        dense_fsa_vec = k2.DenseFsaVec(
+            log_probs,
+            supervision_segments,
+            allow_truncate=0,
+        )
+
+        loss = k2.ctc_loss(
+            decoding_graph=decoding_graph,
+            dense_fsa_vec=dense_fsa_vec,
+            output_beam=10.0,
+            reduction="sum",
+            use_double_scores=False,
+            # delay_penalty=0.05,
+        )
+        return loss
+    
+    def forward_k2_simple(self, log_probs, targets, input_lengths, target_lengths, prior_scaling_factor=0.3, is_training=True):
+        if targets.dim() == 1:
+            targets = targets.split(target_lengths.tolist())
+
+        # Be careful: the targets here are already padded! We need to remove paddings from it
+        supervision_segments, new_targets, indices = self.encode_supervisions(targets, target_lengths, input_lengths)
+        
+        new_targets = [t.tolist() for t in new_targets]
+        decoding_graph = k2.ctc_graph(new_targets, modified=False, device=log_probs.device)
+
+        log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
+
+        if True and prior_scaling_factor != 0:
+            log_priors = torch.zeros(log_probs.size(-1))
+            log_priors[0] += prior_scaling_factor
+            log_priors = log_priors.view(1,1,-1).to(log_probs.device)
+            # print(f"log_probs.shape: {log_probs.shape}")
+            # print(f"log_priors.shape: {log_priors.shape}")
+            log_probs = log_probs - log_priors
+
+        dense_fsa_vec = k2.DenseFsaVec(
+            log_probs,
+            supervision_segments,
+            allow_truncate=0,
+        )
+
+        if False:
+            loss = k2.ctc_loss(
+                decoding_graph=decoding_graph,
+                dense_fsa_vec=dense_fsa_vec,
+                output_beam=10.0,
+                reduction="sum",
+                use_double_scores=False,
+                # delay_penalty=0.05,
+            )
+        
+        if True:  
+            # Also checkout: /exp/rhuang/meta/k2/k2/python/k2/ctc_loss.py and https://github.com/k2-fsa/icefall/blob/master/icefall/decode.py
+            # /exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/scripts/understand_ctc_gradients.ipynb
+
+            # lattice = k2.intersect_dense(
+            #     decoding_graph,
+            #     dense_fsa_vec,
+            #     10,
+            # )
+
+            lattice = k2.intersect_dense_pruned(
+                decoding_graph,
+                dense_fsa_vec,
+                search_beam=20,  # 15
+                output_beam=8,  # 6
+                min_active_states=30,
+                max_active_states=10000,
+            )
+
+            best_path = k2.shortest_path(lattice, use_double_scores=False)
+            forward_scores = best_path.get_tot_scores(use_double_scores=False, log_semiring=True)
+
+            loss = -forward_scores.sum()
+
+        return loss
+
+    def gather_and_update_priors(self, is_ddp=True):
+        if not is_ddp:
+            new_log_prior = self.log_priors_sum - torch.log(torch.tensor(self.priors_T))
+            prior_threshold = -12.0
+            new_log_prior = torch.where(new_log_prior < prior_threshold, prior_threshold, new_log_prior)
+            self.log_priors = new_log_prior.squeeze().view(1,1,-1)
+            self.log_priors_sum = None
+            self.priors_T = 0
+            return
+
+        tensor = self.log_priors_sum
+        # Initialize the gather list on the destination process
+        if dist.get_rank() == 0:
+            log_priors_sums = [torch.zeros_like(tensor) for _ in range(dist.get_world_size())]
+        else:
+            log_priors_sums = None
+        dist.gather(tensor, gather_list=log_priors_sums, dst=0)
+
+        tensor = torch.tensor([self.priors_T]).to(tensor.device)
+        # Initialize the gather list on the destination process
+        if dist.get_rank() == 0:
+            priors_Ts = [torch.zeros_like(tensor) for _ in range(dist.get_world_size())]
+        else:
+            priors_Ts = None
+        dist.gather(tensor, gather_list=priors_Ts, dst=0)
+
+        if dist.get_rank() == 0:
+            log_priors_sums = torch.stack(log_priors_sums)
+            priors_Ts = torch.stack(priors_Ts)
+            log_priors_sums = torch.logsumexp(log_priors_sums, dim=0, keepdim=True)  # (1,1,D)
+            log_priors_sums = log_priors_sums.squeeze()  # (D,)
+            log_priors_Ts = priors_Ts.sum().log().to(log_priors_sums.device)
+            new_log_prior = log_priors_sums - log_priors_Ts
+
+            _a1 = log_priors_sums.exp().sum()
+            _b1 = priors_Ts.sum()
+            # assert abs(_a1 - _b1) / _b1 < 1e-4, f"{_a1} vs. {_b1}"
+            if abs(_a1 - _b1) / _b1 > 1e-4:
+                logging.error(f"prior prob may have error: {_a1} vs. {_b1}: {abs(_a1 - _b1) / _b1}")
+            
+            logging.info("new_priors: " + str(["{0:0.2f}".format(i) for i in new_log_prior.exp().tolist()]))
+            logging.info("new_log_prior: " + str(["{0:0.2f}".format(i) for i in new_log_prior.tolist()]))
+            if self.log_priors is not None:
+                _a1 = new_log_prior.exp()
+                _b1 = self.log_priors.exp()
+                logging.info("diff%: " + str(["{0:0.2f}".format(i) for i in ((_a1 - _b1)/_b1*100).tolist()]))
+              
+            prior_threshold = -12.0
+            new_log_prior = torch.where(new_log_prior < prior_threshold, prior_threshold, new_log_prior)
+            new_log_prior = new_log_prior.squeeze()
+            logging.info("new_log_prior (clipped): " + str(["{0:0.2f}".format(i) for i in new_log_prior.tolist()]))
+        else:
+            # create an empty tensor of the same shape as self.log_priors_sum
+            new_log_prior = torch.zeros_like(self.log_priors_sum)
+            new_log_prior = new_log_prior.squeeze()
+        
+        dist.broadcast(new_log_prior, src=0)
+        # logging.info(f"[{dist.get_rank()}] new_log_prior={new_log_prior}")
+        self.log_priors = new_log_prior.squeeze()
+        # print(f"self.log_priors_sum.shape: {self.log_priors_sum.shape}")
+        # print(f"new_log_prior.shape: {new_log_prior.shape}")
+        self.log_priors_sum = None
+        self.priors_T = 0
+            
     def forward(
         self,
         x: torch.Tensor,
@@ -175,10 +450,13 @@ class Transducer(nn.Module):
             contexts
         )
 
+        if self.training:
+            self.encoder.need_attn_weights = True
         encoder_out, x_lens, intermediate_out = self.encoder(x, x_lens, contexts=(contexts_h, contexts_mask, self.encoder_biasing_adapter))
         assert torch.all(x_lens > 0)
+        self.encoder.need_attn_weights = False
 
-        if self.use_ctc:
+        if self.use_ctc and self.training:
             # Compute CTC loss
             targets = y.values
 
@@ -213,12 +491,14 @@ class Transducer(nn.Module):
         if self.params.irrelevance_learning and self.training:
             need_weights = True
         else:
-            need_weights = False
+            # need_weights = False
+            need_weights = True if self.training else False
         encoder_biasing_out, attn_enc = self.encoder_biasing_adapter[-1].forward(encoder_out, contexts_h, contexts_mask, need_weights=need_weights)
         # breakpoint()
         encoder_out = encoder_out + encoder_biasing_out
 
-        if self.use_ctc2:  # Apply ctc loss on the `encoder_biasing_out` term only
+        # Apply ctc loss on the `encoder_biasing_out` term only
+        if self.use_ctc2 and self.training:
             assert not self.use_ctc
             y_rare = contexts['y_rare']
             targets = y_rare.values
@@ -254,6 +534,70 @@ class Transducer(nn.Module):
             ctc_loss = ctc_loss / len(self.i_ctc2_layers)
         else:
             ctc_loss = torch.tensor(0).to(encoder_out.device)
+        
+        # Apply ctc loss on the attention weights
+        if self.use_ctc3 and self.training:
+            assert not self.use_ctc and not self.use_ctc2
+            gt_rare_words_indices = contexts['gt_rare_words_indices']
+            y_lens = [len(wl) for wl in gt_rare_words_indices]
+            y_lens = torch.tensor(y_lens, dtype=torch.int64)
+            gt_rare_words_indices = [w for wl in gt_rare_words_indices for w in wl]
+            gt_rare_words_indices = torch.tensor(gt_rare_words_indices, dtype=torch.int64)
+            gt_rare_words_indices += 1  # shift 1 due to the no-bias token
+
+            ctc_loss = torch.tensor(0).to(encoder_out.device)
+            for i in range(len(self.encoder.encoder_dims)):
+                if i in self.i_ctc3_layers:
+                    assert intermediate_out[i] is not None
+                    # _ctc_loss = torch.nn.functional.ctc_loss(
+                    #     log_probs=(intermediate_out[i]+1.0e-20).log().permute(1, 0, 2),  # (T,N,C)
+                    #     targets=gt_rare_words_indices,
+                    #     input_lengths=self.encoder.intermediate_x_lens[i],
+                    #     target_lengths=y_lens,
+                    #     reduction="sum",
+                    # )
+                    _ctc_loss = self.forward_k2_simple(
+                        log_probs=(intermediate_out[i] + 1.0e-20).log().permute(1, 0, 2),  # (T,N,C)
+                        targets=gt_rare_words_indices, 
+                        input_lengths=self.encoder.intermediate_x_lens[i], 
+                        target_lengths=y_lens,
+                        prior_scaling_factor=2.0,
+                        is_training=True,
+                    )
+                    # breakpoint()
+                    # !ii=6; attn_enc[ii].argmax(dim=-1), contexts['gt_rare_words_indices'][ii]
+                    # !vals, ids = attn_enc[ii].max(-1)
+                    # !for j,  (i, v) in enumerate(zip(ids.tolist(), vals.tolist())):  print(j, i, v)
+                    #
+                    # !vals, ids = attn_enc[ii].topk(3, dim=-1)
+                    # !for j in range(len(vals)): print(f"[{j}] Indices: {ids[j].tolist()}, Values: {vals[j].tolist()}")
+                    # print(f"CTC loss for layer {i} is {_ctc_loss}")
+                    ctc_loss = ctc_loss + _ctc_loss
+            
+            i = len(self.encoder.encoder_dims)
+            if i in self.i_ctc3_layers:
+                # _ctc_loss = torch.nn.functional.ctc_loss(
+                #     log_probs=(attn_enc+1.0e-20).log().permute(1, 0, 2),  # (T,N,C)
+                #     targets=gt_rare_words_indices,
+                #     input_lengths=x_lens,
+                #     target_lengths=y_lens,
+                #     reduction="sum",
+                # )
+                _ctc_loss = self.forward_k2_simple(
+                    log_probs=(attn_enc + 1.0e-20).log().permute(1, 0, 2),  # (T,N,C)
+                    targets=gt_rare_words_indices,
+                    input_lengths=x_lens,
+                    target_lengths=y_lens,
+                    prior_scaling_factor=2.0,
+                    is_training=True,
+                )
+                # print(f"CTC loss for layer {i} is {_ctc_loss}")
+                ctc_loss = ctc_loss + _ctc_loss
+
+            ctc_loss = ctc_loss / len(self.i_ctc3_layers)
+        else:
+            ctc_loss = torch.tensor(0).to(encoder_out.device)
+            
 
         # Now for the decoder, i.e., the prediction network
         row_splits = y.shape.row_splits(1)
