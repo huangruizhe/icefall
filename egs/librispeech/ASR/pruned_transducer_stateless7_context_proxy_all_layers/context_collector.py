@@ -207,8 +207,10 @@ class ContextCollector(torch.utils.data.Dataset):
         for i, text in enumerate(texts):
             rare_words = []
             if self.temp_rare_words is not None:
-                rare_words = self.temp_rare_words[i]
+                rare_words.extend(self.temp_rare_words[i])
                 new_words.extend(rare_words)
+                self.temp_rare_words[i] = set(self.temp_rare_words[i])
+            
             for word in text.split():
                 if self.is_full_context or word not in self.common_words:
                     rare_words.append(word)
@@ -233,13 +235,15 @@ class ContextCollector(torch.utils.data.Dataset):
                 
                 # method 2:
                 x = np.random.rand(len(rare_words))
-                new_rare_words = [wx for wx, wxi in zip(rare_words, x) if wxi < self.keep_ratio]
+                new_rare_words = [wx for wx, wxi in zip(rare_words, x) if (self.temp_rare_words[i] is not None and wx in self.temp_rare_words[i]) or wxi < self.keep_ratio]
                 # for xi in range(len(rare_words)):
                 #     if x[xi] < self.keep_ratio:
                 #         new_rare_words.append(rare_words[xi])
                 rare_words = new_rare_words
 
             rare_words_list.append(rare_words)
+            if self.temp_rare_words is not None:
+                self.temp_rare_words[i] = rare_words  # just to see it from outside
         
         self.temp_dict = None
         if len(new_words) > 0:
