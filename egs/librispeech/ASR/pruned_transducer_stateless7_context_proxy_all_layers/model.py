@@ -112,7 +112,7 @@ class Transducer(nn.Module):
             # )
         
         # Apply ctc loss on the `encoder_biasing_out` term only
-        self.use_ctc2 = True
+        self.use_ctc2 = False
         if self.use_ctc2:
             # self.i_ctc2_layers = [3, 5]
             self.i_ctc2_layers = [3]

@@ -233,10 +233,10 @@ class ContextCollector(torch.utils.data.Dataset):
                 
                 # method 2:
                 x = np.random.rand(len(rare_words))
-                new_rare_words = []
-                for xi in range(len(rare_words)):
-                    if x[xi] < self.keep_ratio:
-                        new_rare_words.append(rare_words[xi])
+                new_rare_words = [wx for wx, wxi in zip(rare_words, x) if wxi < self.keep_ratio]
+                # for xi in range(len(rare_words)):
+                #     if x[xi] < self.keep_ratio:
+                #         new_rare_words.append(rare_words[xi])
                 rare_words = new_rare_words
 
             rare_words_list.append(rare_words)
@@ -769,7 +769,8 @@ z zz
         # p = np.random.rand(len(texts)) < prob
 
         # TODO: <1> is this necessary?
-        pos_tags = [self.pos_tagger.tag(text.lower().split()) for text in texts]
+        # pos_tags = [self.pos_tagger.tag(text.lower().split()) for text in texts]
+        pos_tags = [[(w, "NN") for w in text.lower().split()] for text in texts]
 
         # all_rare_words = list()
         # for text in texts:
