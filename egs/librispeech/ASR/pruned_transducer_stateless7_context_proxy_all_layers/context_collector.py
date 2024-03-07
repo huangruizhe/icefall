@@ -12,6 +12,7 @@ from context_wfst import generate_context_graph_nfa
 from collections import defaultdict
 import k2
 import string
+import re
 
 
 class SentenceTokenizer:
@@ -547,6 +548,7 @@ class TextPerturbator2:
         rules = """
 a aa
 aa ar
+a ae
 a e
 a o
 a ei
@@ -697,12 +699,15 @@ tr dr
 ue oo
 ur ir
 u iu
+u eo
+u ew
 v w
 w wh
 x ks
 x s
 z ts
 z tz
+z zz
 """
 
         rules = rules.upper().strip().split("\n")  # upper case for librispeech
@@ -713,17 +718,23 @@ z tz
             rules_dict[r.split()[0]].add(r.split()[1])
             rules_dict[r.split()[1]].add(r.split()[0])
         self.rules_dict = {k: list(v) for k, v in rules_dict.items()}
+        self.rules_regex = "|".join(sorted(map(re.escape,  self.rules_dict.keys()), key=len, reverse=True))
 
         import nltk
         self.pos_tagger = nltk.tag.PerceptronTagger()
 
-    def perturb_one_word(self, s):
+    def perturb_one_word0(self, s):
         s = f"_{s}_"
         appearances = [sub for sub in self.rules_dict.keys() if sub in s]
         if len(appearances) == 0:
             return s
+        
+        # This is to find `maximum` matched pattern
         max_len = max([len(sub) for sub in appearances])
         appearances = [sub for sub in appearances if len(sub) == max_len]
+
+        # However, `maximal` matched pattern may be what we need, e.g., if "ie" is matched, we won't consider "i" or "e" anymore
+        
         pattern = random.choice(appearances)
         target = random.choice(self.rules_dict[pattern])
         # n_occur = len(re.findall(f'(?={pattern})', s))
@@ -732,9 +743,32 @@ z tz
         s = s[1:-1]
         return s
 
+    def perturb_one_word(self, s):
+        # This implementation uses re to find "maximal" matched patterns
+
+        s = f"_{s}_"
+        appearances = [(m.group(), m.start()) for m in re.finditer(self.rules_regex, s)]
+        if len(appearances) == 0:
+            return s
+
+        # In regular expressions, the engine will always try to make the match as large as possible when using quantifiers like *, +, ?, and {m,n}. This is called "greedy" matching.
+        # However, in the context of matching multiple different substrings with the | operator, the re module in Python uses a "first-come" strategy. It will return the first match it finds, even if a later substring would produce a longer match.
+        # To ensure "maximal" matches in this context, you can sort the substrings by length in descending order before joining them into a regular expression. This way, longer substrings will be matched first.
+
+        # test case:
+        # substring_set = {"y", "o", "yo", "ng"}
+        # s = "your long string"
+        
+        pattern, pos = random.choice(appearances)
+        target = random.choice(self.rules_dict[pattern])
+        s = s[:pos] + target + s[pos + len(pattern):]
+        s = s[1:-1]
+        return s
+
     def perturb_texts(self, texts, common_words=[], prob=0.6) -> str:
         # p = np.random.rand(len(texts)) < prob
 
+        # TODO: <1> is this necessary?
         pos_tags = [self.pos_tagger.tag(text.lower().split()) for text in texts]
 
         # all_rare_words = list()
