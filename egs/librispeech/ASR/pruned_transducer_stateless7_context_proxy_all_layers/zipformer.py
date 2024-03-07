@@ -331,15 +331,15 @@ class Zipformer(EncoderInterface):
                     need_weights=self.need_attn_weights,
                 )
 
-                # # Apply ctc loss to the `x_biasing_out` term only
-                # if self.downsample_intermediate_output[i] is not None:
-                #     intermediate_results[i] = self.downsample_intermediate_output[i](x_biasing_out.permute(1, 0, 2))  # (T, N, C)
-                #     # intermediate_results[i] = x_biasing_out.permute(1, 0, 2)  # (T, N, C)
+                # Apply ctc loss to the `x_biasing_out` term only
+                if self.downsample_intermediate_output[i] is not None:
+                    intermediate_results[i] = self.downsample_intermediate_output[i](x_biasing_out.permute(1, 0, 2))  # (T, N, C)
+                    # intermediate_results[i] = x_biasing_out.permute(1, 0, 2)  # (T, N, C)
 
-                # Apply ctc loss to the attn weights
-                if i in self.biasing_layers:
-                    intermediate_results[i] = attn_weights
-                    self.intermediate_x_lens[i] = lengths
+                # # Apply ctc loss to the attn weights
+                # if i in self.biasing_layers:
+                #     intermediate_results[i] = attn_weights
+                #     self.intermediate_x_lens[i] = lengths
 
                 x = x + x_biasing_out.permute(1, 0, 2)
 

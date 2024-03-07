@@ -20,6 +20,7 @@ import random
 import k2
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from encoder_interface import EncoderInterface
 from scaling import penalize_abs_values_gt
 
@@ -111,17 +112,18 @@ class Transducer(nn.Module):
             # )
         
         # Apply ctc loss on the `encoder_biasing_out` term only
-        self.use_ctc2 = False
+        self.use_ctc2 = True
         if self.use_ctc2:
-            self.i_ctc2_layers = [3, 5]
+            # self.i_ctc2_layers = [3, 5]
+            self.i_ctc2_layers = [3]
             self.ctc2_outputs = [None] * (len(self.encoder.encoder_dims) + 1)
             for i in range(len(self.encoder.encoder_dims) + 1):
                 if i in self.i_ctc2_layers:
                     j = i if i < len(self.encoder.encoder_dims) else -1
                     self.ctc2_outputs[i] = nn.Sequential(
-                        nn.Dropout(p=0.1),
-                        nn.Linear(self.encoder.encoder_dims[j], self.encoder.encoder_dims[j]),
-                        nn.Tanh(),
+                        # nn.Dropout(p=0.1),
+                        # nn.Linear(self.encoder.encoder_dims[j], self.encoder.encoder_dims[j]),
+                        # nn.Tanh(),
                         nn.Dropout(p=0.1),
                         nn.Linear(self.encoder.encoder_dims[j], vocab_size),
                         nn.LogSoftmax(dim=-1),
@@ -129,7 +131,7 @@ class Transducer(nn.Module):
             self.ctc2_outputs = nn.ModuleList(self.ctc2_outputs)
         
         # Apply ctc loss on the attention weights
-        self.use_ctc3 = True
+        self.use_ctc3 = False
         if self.use_ctc3:
             self.i_ctc3_layers = [3, 5]
             
@@ -137,6 +139,10 @@ class Transducer(nn.Module):
             self.log_priors = None  # (D,)
             self.log_priors_sum = None  # (1, D)
             self.max_dim = 150
+        
+        self.ce_loss = False
+        if self.ce_loss:
+            self.ce_layers = [3, 5]
 
 
     def pad_probs(self, probs, dim, pad_value=0):
@@ -147,7 +153,7 @@ class Transducer(nn.Module):
             return probs
         elif probs.size(-1) < dim:
             padding_size = dim - probs.size(1)
-            return torch.nn.functional.pad(probs, (0, padding_size), 'constant', pad_value)
+            return F.pad(probs, (0, padding_size), 'constant', pad_value)
         else:
             return probs[:, :dim]
 
@@ -281,13 +287,20 @@ class Transducer(nn.Module):
 
         log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
 
-        if True and prior_scaling_factor != 0:
+        # constant penalty
+        if False and prior_scaling_factor != 0:
             log_priors = torch.zeros(log_probs.size(-1))
             log_priors[0] += prior_scaling_factor
             log_priors = log_priors.view(1,1,-1).to(log_probs.device)
             # print(f"log_probs.shape: {log_probs.shape}")
             # print(f"log_priors.shape: {log_priors.shape}")
             log_probs = log_probs - log_priors
+        
+        # dynamic penalty -- the goal here is to expose the second best; make those "significant" second-best better than <no-bias>
+        if False and prior_scaling_factor is None:
+            second_best_values, _ = log_probs[:,:,1:].max(dim=-1)  # (N, T) and (N, T)
+            vals = torch.where((second_best_values > -2.3) & (log_probs[:,:,0] > second_best_values), second_best_values - 1.0, log_probs[:,:,0])
+            log_probs[:,:,0] = vals.squeeze(-1)
 
         dense_fsa_vec = k2.DenseFsaVec(
             log_probs,
@@ -295,7 +308,7 @@ class Transducer(nn.Module):
             allow_truncate=0,
         )
 
-        if False:
+        if True:
             loss = k2.ctc_loss(
                 decoding_graph=decoding_graph,
                 dense_fsa_vec=dense_fsa_vec,
@@ -305,7 +318,7 @@ class Transducer(nn.Module):
                 # delay_penalty=0.05,
             )
         
-        if True:  
+        if False:  
             # Also checkout: /exp/rhuang/meta/k2/k2/python/k2/ctc_loss.py and https://github.com/k2-fsa/icefall/blob/master/icefall/decode.py
             # /exp/rhuang/meta/icefall/egs/librispeech/ASR/pruned_transducer_stateless7_context_proxy_all_layers/scripts/understand_ctc_gradients.ipynb
 
@@ -395,6 +408,36 @@ class Transducer(nn.Module):
         self.log_priors_sum = None
         self.priors_T = 0
             
+    def compute_cross_entropy_loss(self, probs, x_lens, num_words_per_utt, gt_rare_words_indices):
+        # `probs` of shape (N, T, D)
+        # `x_lens` corresponds to the T dimension
+        # `num_words_per_utt` corresponds to the D dimension
+
+        assert probs.size(0) == len(gt_rare_words_indices) == len(x_lens) == len(num_words_per_utt)
+        probs_list = [ps[:xl, max(gt_idx, default=0) + 1: nwpu].sum(dim=-1) for ps, xl, nwpu, gt_idx in zip(probs, x_lens, num_words_per_utt, gt_rare_words_indices)]
+
+        all_neg_class_probs = torch.cat(probs_list)  # these probabilities should be close to 0
+
+        # logging.info(f"ratio (>0.2): {torch.sum(all_neg_class_probs > 0.2) / all_neg_class_probs.size(0)}")        
+        # torch.sum(all_neg_class_probs > 0.2) / all_neg_class_probs.size(0)
+
+        # targets = torch.zeros_like(all_neg_class_probs)
+        targets = torch.full_like(all_neg_class_probs, 1e-10)
+        weights = 1 + 2 / (1 + torch.exp(3.5 - 10 * all_neg_class_probs.detach()))
+        weights = torch.where(weights > 2.9, 5, weights)
+        # weights = None
+        
+        with torch.cuda.amp.autocast(enabled=False):
+            loss = F.binary_cross_entropy(all_neg_class_probs, targets, weight=weights, reduction="sum")
+
+        # with torch.cuda.amp.autocast(enabled=False):
+        #     loss_fn = nn.BCELoss(weight=weights, reduction="sum")
+        #     loss = loss_fn(all_neg_class_probs, targets)
+
+        # Another option is NLLLOSS?
+
+        return loss
+
     def forward(
         self,
         x: torch.Tensor,
@@ -450,11 +493,13 @@ class Transducer(nn.Module):
             contexts
         )
 
-        if self.training:
+        if self.training and self.use_ctc3:
             self.encoder.need_attn_weights = True
         encoder_out, x_lens, intermediate_out = self.encoder(x, x_lens, contexts=(contexts_h, contexts_mask, self.encoder_biasing_adapter))
         assert torch.all(x_lens > 0)
         self.encoder.need_attn_weights = False
+
+        ctc_loss = torch.tensor(0).to(encoder_out.device)
 
         if self.use_ctc and self.training:
             # Compute CTC loss
@@ -466,14 +511,14 @@ class Transducer(nn.Module):
             ctc_output3 = self.ctc_output3(intermediate_out[3])  # (T, N, C)
             # ctc_output5 = self.ctc_output5(intermediate_out[5])  # (T, N, C)
 
-            ctc_loss3 = torch.nn.functional.ctc_loss(
+            ctc_loss3 = F.ctc_loss(
                 log_probs=ctc_output3,
                 targets=targets,
                 input_lengths=x_lens,
                 target_lengths=y_lens,
                 reduction="sum",
             )
-            # ctc_loss5 = torch.nn.functional.ctc_loss(
+            # ctc_loss5 = F.ctc_loss(
             #     log_probs=ctc_output5,
             #     targets=targets,
             #     input_lengths=x_lens,
@@ -481,9 +526,7 @@ class Transducer(nn.Module):
             #     reduction="sum",
             # )
             # ctc_loss = (ctc_loss3 + ctc_loss5)/2
-            ctc_loss = ctc_loss3
-        else:
-            ctc_loss = torch.tensor(0).to(encoder_out.device)
+            ctc_loss = ctc_loss3            
 
         # assert x.size(0) == contexts_h.size(0) == contexts_mask.size(0)
         # assert contexts_h.ndim == 3
@@ -492,7 +535,7 @@ class Transducer(nn.Module):
             need_weights = True
         else:
             # need_weights = False
-            need_weights = True if self.training else False
+            need_weights = True if self.training and self.use_ctc3 else False
         encoder_biasing_out, attn_enc = self.encoder_biasing_adapter[-1].forward(encoder_out, contexts_h, contexts_mask, need_weights=need_weights)
         # breakpoint()
         encoder_out = encoder_out + encoder_biasing_out
@@ -512,7 +555,7 @@ class Transducer(nn.Module):
                 if self.ctc2_outputs[i] is not None:
                     assert intermediate_out[i] is not None
                     ctc2_output = self.ctc2_outputs[i](intermediate_out[i])  # (T,N,C)
-                    ctc_loss = ctc_loss + torch.nn.functional.ctc_loss(
+                    ctc_loss = ctc_loss + F.ctc_loss(
                         log_probs=ctc2_output,
                         targets=targets,
                         input_lengths=x_lens,
@@ -521,9 +564,9 @@ class Transducer(nn.Module):
                     )
 
             i = len(self.encoder.encoder_dims)
-            if self.ctc2_outputs[i] is not None:
+            if self.ctc2_outputs[i] is not None and i in self.i_ctc2_layers:
                 ctc2_output = self.ctc2_outputs[i](encoder_biasing_out.permute(1, 0, 2))  # (T,N,C)
-                ctc_loss = ctc_loss + torch.nn.functional.ctc_loss(
+                ctc_loss = ctc_loss + F.ctc_loss(
                     log_probs=ctc2_output,
                     targets=targets,
                     input_lengths=x_lens,
@@ -532,8 +575,6 @@ class Transducer(nn.Module):
                 )
             
             ctc_loss = ctc_loss / len(self.i_ctc2_layers)
-        else:
-            ctc_loss = torch.tensor(0).to(encoder_out.device)
         
         # Apply ctc loss on the attention weights
         if self.use_ctc3 and self.training:
@@ -549,7 +590,7 @@ class Transducer(nn.Module):
             for i in range(len(self.encoder.encoder_dims)):
                 if i in self.i_ctc3_layers:
                     assert intermediate_out[i] is not None
-                    # _ctc_loss = torch.nn.functional.ctc_loss(
+                    # _ctc_loss = F.ctc_loss(
                     #     log_probs=(intermediate_out[i]+1.0e-20).log().permute(1, 0, 2),  # (T,N,C)
                     #     targets=gt_rare_words_indices,
                     #     input_lengths=self.encoder.intermediate_x_lens[i],
@@ -561,7 +602,7 @@ class Transducer(nn.Module):
                         targets=gt_rare_words_indices, 
                         input_lengths=self.encoder.intermediate_x_lens[i], 
                         target_lengths=y_lens,
-                        prior_scaling_factor=2.0,
+                        prior_scaling_factor=None,
                         is_training=True,
                     )
                     # breakpoint()
@@ -576,7 +617,7 @@ class Transducer(nn.Module):
             
             i = len(self.encoder.encoder_dims)
             if i in self.i_ctc3_layers:
-                # _ctc_loss = torch.nn.functional.ctc_loss(
+                # _ctc_loss = F.ctc_loss(
                 #     log_probs=(attn_enc+1.0e-20).log().permute(1, 0, 2),  # (T,N,C)
                 #     targets=gt_rare_words_indices,
                 #     input_lengths=x_lens,
@@ -588,16 +629,31 @@ class Transducer(nn.Module):
                     targets=gt_rare_words_indices,
                     input_lengths=x_lens,
                     target_lengths=y_lens,
-                    prior_scaling_factor=2.0,
+                    prior_scaling_factor=None,
                     is_training=True,
                 )
                 # print(f"CTC loss for layer {i} is {_ctc_loss}")
                 ctc_loss = ctc_loss + _ctc_loss
 
             ctc_loss = ctc_loss / len(self.i_ctc3_layers)
-        else:
-            ctc_loss = torch.tensor(0).to(encoder_out.device)
+        
+        if self.ce_loss and self.training:
+            assert not self.use_ctc and not self.use_ctc2 and not self.use_ctc3
             
+            ctc_loss = torch.tensor(0).to(encoder_out.device)
+            for i in range(len(self.encoder.encoder_dims)):
+                if i in self.ce_layers:
+                    assert intermediate_out[i] is not None
+                    _ctc_loss = self.compute_cross_entropy_loss(
+                        intermediate_out[i], 
+                        self.encoder.intermediate_x_lens[i], 
+                        contexts["num_words_per_utt"], 
+                        contexts["gt_rare_words_indices"]
+                    )
+                    ctc_loss = ctc_loss + _ctc_loss
+            
+            _ctc_loss = self.compute_cross_entropy_loss(attn_enc, x_lens, contexts["num_words_per_utt"], contexts["gt_rare_words_indices"])
+            ctc_loss = ctc_loss + _ctc_loss
 
         # Now for the decoder, i.e., the prediction network
         row_splits = y.shape.row_splits(1)

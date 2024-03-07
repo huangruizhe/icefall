@@ -639,6 +639,10 @@ def get_contextual_model(params: AttributeDict, decoder=None) -> nn.Module:
         num_heads=4,
     )
 
+    # print(f"context_encoder: {context_encoder}")
+    # print(f"encoder_biasing_adapters: {encoder_biasing_adapters}")
+    # print(f"decoder_biasing_adapter: {decoder_biasing_adapter}")
+
     return context_encoder, encoder_biasing_adapters, decoder_biasing_adapter
 
 def get_transducer_model(params: AttributeDict) -> nn.Module:
@@ -877,8 +881,8 @@ def compute_loss(
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y).to(device)
 
-    # y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
-    # y_rare = k2.RaggedTensor(y_rare).to(device)
+    y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
+    y_rare = k2.RaggedTensor(y_rare).to(device)
 
     word_list, word_lengths, num_words_per_utt = \
         context_collector.get_context_word_list(batch)
@@ -894,14 +898,14 @@ def compute_loss(
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,
-        # "y_rare": y_rare,
-        "gt_rare_words_indices": gt_rare_words_indices,
+        "y_rare": y_rare,
+        # "gt_rare_words_indices": gt_rare_words_indices,
     }
 
-    _model = model.module if isinstance(model, DDP) else model
-    _model.encoder.eval()  # TODO: This is important!
-    _model.encoder.eval()
-    _model.joiner.eval()
+    # _model = model.module if isinstance(model, DDP) else model
+    # _model.encoder.eval()  # TODO: This is important!
+    # _model.encoder.eval()
+    # _model.joiner.eval()
 
     with torch.set_grad_enabled(is_training):
         simple_loss, pruned_loss, ctc_loss = model(
@@ -933,7 +937,7 @@ def compute_loss(
             else 0.1 + 0.9 * (batch_idx_train / warm_step)
         )
 
-        loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss + 0.12 * ctc_loss  # 0.07
+        loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss + 0.1* ctc_loss  # 0.07
 
     assert loss.requires_grad == is_training
 
@@ -962,6 +966,12 @@ def compute_validation_loss(
     """Run the validation process."""
     model.eval()
 
+    _n_distractors = context_collector.n_distractors
+    # if context_collector.n_distractors > 0 and _n_distractors != 100:
+    if True:
+        context_collector.n_distractors = 100
+        logging.info(f"Using 100 distractors for validation (instead of {_n_distractors})")
+
     tot_loss = MetricsTracker()
 
     for batch_idx, batch in enumerate(valid_dl):
@@ -983,6 +993,8 @@ def compute_validation_loss(
     if loss_value < params.best_valid_loss:
         params.best_valid_epoch = params.cur_epoch
         params.best_valid_loss = loss_value
+
+    context_collector.n_distractors = _n_distractors
 
     return tot_loss
 
