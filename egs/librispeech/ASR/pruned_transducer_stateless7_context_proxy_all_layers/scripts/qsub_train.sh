@@ -117,7 +117,7 @@ if true; then
       --is-pretrained-context-encoder false \
       --is-reused-context-encoder false \
       --is-full-context $is_full_context \
-      --n-distractors $n_distractors  --start-epoch 14 --num-epochs 40 --master-port 12357 --use-proxy true --keep-ratio 0.8 # --start-batch 24000 # --base-lr 0.08  --master-port 12355 --irrelevance-learning true
+      --n-distractors $n_distractors  --start-epoch 14 --num-epochs 40 --master-port 12357 --proxy-prob 0.4 --keep-ratio 0.8 # --start-batch 24000 # --base-lr 0.08  --master-port 12355 --irrelevance-learning true
 fi
 
 ####################################

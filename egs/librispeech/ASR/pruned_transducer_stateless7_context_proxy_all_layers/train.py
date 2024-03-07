@@ -447,10 +447,10 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--use-proxy",
-        type=str2bool,
-        default=False,
-        help="The model will learn massively about negative examples, where it needs to always choose <no-bias>",
+        "--proxy-prob",
+        type=float,
+        default=None,
+        help="",
     )
 
     add_model_arguments(parser)
@@ -864,8 +864,8 @@ def compute_loss(
     texts = batch["supervisions"]["text"]
 
     # Text perturbation
-    if params.use_proxy and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
-        new_texts, new_rare_words = context_collector.text_perturbator.perturb_texts(texts, context_collector.common_words, prob=0.4)
+    if params.proxy_prob is not None and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
+        new_texts, new_rare_words = context_collector.text_perturbator.perturb_texts(texts, context_collector.common_words, prob=params.proxy_prob)
         old_texts = texts
         texts = new_texts
         batch["supervisions"]["text"] = new_texts
@@ -967,6 +967,8 @@ def compute_validation_loss(
     model.eval()
 
     _n_distractors = context_collector.n_distractors
+    _keep_ratio = context_collector.keep_ratio
+    context_collector.keep_ratio = 1.0
     # if context_collector.n_distractors > 0 and _n_distractors != 100:
     if True:
         context_collector.n_distractors = 100
@@ -995,6 +997,7 @@ def compute_validation_loss(
         params.best_valid_loss = loss_value
 
     context_collector.n_distractors = _n_distractors
+    context_collector.keep_ratio = _keep_ratio
 
     return tot_loss
 
