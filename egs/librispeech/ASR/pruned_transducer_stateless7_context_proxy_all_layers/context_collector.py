@@ -235,7 +235,7 @@ class ContextCollector(torch.utils.data.Dataset):
                 
                 # method 2:
                 x = np.random.rand(len(rare_words))
-                new_rare_words = [wx for wx, wxi in zip(rare_words, x) if (self.temp_rare_words[i] is not None and wx in self.temp_rare_words[i]) or wxi < self.keep_ratio]
+                new_rare_words = [wx for wx, wxi in zip(rare_words, x) if (self.temp_rare_words is not None and wx in self.temp_rare_words[i]) or wxi < self.keep_ratio]
                 # for xi in range(len(rare_words)):
                 #     if x[xi] < self.keep_ratio:
                 #         new_rare_words.append(rare_words[xi])
