@@ -28,8 +28,8 @@ from icefall.utils import add_sos
 from typing import Union, List
 
 import sys
-sys.path.insert(0,'/exp/rhuang/meta/ctc')
-import ctc as ctc_primer
+#sys.path.insert(0,'/exp/rhuang/meta/ctc')
+#import ctc as ctc_primer
 import torch.distributed as dist
 import logging
 from torch.nn.utils.rnn import pad_sequence
@@ -488,10 +488,15 @@ class Transducer(nn.Module):
         assert y.num_axes == 2, y.num_axes
 
         assert x.size(0) == x_lens.size(0) == y.dim0
+        # assert x.size(0) == x_lens.size(0) == y.dim0 or x.size(0) * 2 == x_lens.size(0) * 2 == y.dim0
 
         contexts_h, contexts_mask = self.context_encoder.embed_contexts(
             contexts
         )
+
+        # if x.size(0) * 2 == y.dim0:
+        #     x = torch.cat((x, x), dim=0)
+        #     x_lens = torch.cat((x_lens, x_lens), dim=-1)
 
         if self.training and self.use_ctc3:
             self.encoder.need_attn_weights = True

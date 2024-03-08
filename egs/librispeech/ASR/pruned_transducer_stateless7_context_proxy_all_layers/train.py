@@ -453,6 +453,13 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--throwaway-prob",
+        type=float,
+        default=None,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -870,19 +877,115 @@ def compute_loss(
         texts = new_texts
         batch["supervisions"]["text"] = new_texts
         context_collector.temp_rare_words = new_rare_words
+
+        # Simply upsample by twice:
+        # texts = new_texts + new_texts
+        # batch["supervisions"]["text"] = new_texts + new_texts
+        # context_collector.temp_rare_words = new_rare_words + new_rare_words
     else:
         new_texts = None
         new_rare_words = None
-    
+
     # if is_training:
     #     breakpoint()
     # !i=3; print(old_texts[i], "\n", new_texts[i], "\n", new_rare_words[i])
+        
+    # Upsampling mechanism: we will upsample those "interesting" sentences containing rare words
+    # [Strategy 1] in fact, we will remove some utterances here that doesn't contain rare words
+    if True and params.throwaway_prob is not None:
+        keep_ids = []
+        for i, text in enumerate(texts):
+            num_rare_words = len([word for word in text.split() if word not in context_collector.common_words])
+            if num_rare_words == 0 and torch.rand(1) < params.throwaway_prob and feature_lens[i] != feature_lens.max():
+                continue
+            keep_ids.append(i)
+        
+        total_chars = sum([len(texts[i]) for i in keep_ids])
+        threshold = 35000
+        if total_chars > threshold:
+            keep_ids = keep_ids[:int(len(keep_ids) * threshold / total_chars)]
+        
+        if len(keep_ids) < len(texts):
+            feature = feature[keep_ids]
+            feature_lens = feature_lens[keep_ids]
+            texts = [texts[i] for i in keep_ids]
+            old_texts = [old_texts[i] for i in keep_ids]
+
+            # batch["supervisions"]["text"]
+            # batch['supervisions']['cut']
+            for k in batch['supervisions']:
+                if isinstance(batch['supervisions'][k], list):
+                    batch['supervisions'][k] = [batch['supervisions'][k][i] for i in keep_ids]
+                elif isinstance(batch['supervisions'][k], torch.Tensor):
+                    batch['supervisions'][k] = batch['supervisions'][k][keep_ids]
+                else:
+                    raise NotImplementedError
+            supervisions = batch["supervisions"]
+
+            if context_collector.temp_rare_words is not None:
+                new_rare_words = [new_rare_words[i] for i in keep_ids]
+                context_collector.temp_rare_words = [context_collector.temp_rare_words[i] for i in keep_ids]
+
+    # [Strategy 2] We will perturb the same utterances again here
+    if True:
+        new_texts2, new_rare_words2 = context_collector.text_perturbator.perturb_texts(old_texts, context_collector.common_words, prob=params.proxy_prob)
+        
+        feature = torch.cat((feature, feature), dim=0)
+        feature_lens = torch.cat((feature_lens, feature_lens), dim=-1)
+        texts = texts + new_texts2
+        old_texts = old_texts + old_texts
+        
+        for k in batch['supervisions']:
+            if isinstance(batch['supervisions'][k], list):
+                batch['supervisions'][k] = batch['supervisions'][k] + batch['supervisions'][k]
+            elif isinstance(batch['supervisions'][k], torch.Tensor):
+                batch['supervisions'][k] = torch.cat((batch['supervisions'][k], batch['supervisions'][k]), dim=0)
+            else:
+                raise NotImplementedError
+        supervisions = batch["supervisions"]
+
+        if context_collector.temp_rare_words is not None:
+            new_rare_words = new_rare_words + new_rare_words2
+            context_collector.temp_rare_words = new_rare_words
+
+    # Ah, just do it again
+    total_chars = sum([len(t) for t in texts])
+    threshold = 30000
+    keep_ids = list(range(len(texts)))
+    if total_chars > threshold:
+        keep_ids = keep_ids[:int(len(keep_ids) * threshold / total_chars)]
+    
+    if len(keep_ids) < len(texts):
+        feature = feature[keep_ids]
+        feature_lens = feature_lens[keep_ids]
+        texts = [texts[i] for i in keep_ids]
+        old_texts = [old_texts[i] for i in keep_ids]
+
+        # batch["supervisions"]["text"]
+        # batch['supervisions']['cut']
+        for k in batch['supervisions']:
+            if isinstance(batch['supervisions'][k], list):
+                batch['supervisions'][k] = [batch['supervisions'][k][i] for i in keep_ids]
+            elif isinstance(batch['supervisions'][k], torch.Tensor):
+                batch['supervisions'][k] = batch['supervisions'][k][keep_ids]
+            else:
+                raise NotImplementedError
+        supervisions = batch["supervisions"]
+
+        if context_collector.temp_rare_words is not None:
+            new_rare_words = [new_rare_words[i] for i in keep_ids]
+            context_collector.temp_rare_words = [context_collector.temp_rare_words[i] for i in keep_ids]
+
+    # if is_training:
+    #     breakpoint()
+    # !i=3; print(old_texts[i], "\n", new_texts[i], "\n", new_rare_words[i])
+    # !len([None for l in new_rare_words if len(l) > 0]), len(new_rare_words), total_chars 
 
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y).to(device)
 
-    y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
-    y_rare = k2.RaggedTensor(y_rare).to(device)
+    # y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
+    # y_rare = k2.RaggedTensor(y_rare).to(device)
 
     word_list, word_lengths, num_words_per_utt = \
         context_collector.get_context_word_list(batch)
@@ -890,7 +993,7 @@ def compute_loss(
     # word_lengths = word_lengths.to(device)
     # num_words_per_utt = num_words_per_utt.to(device)
     context_collector.temp_rare_words = None
-    gt_rare_words_indices = context_collector.gt_rare_words_indices
+    # gt_rare_words_indices = context_collector.gt_rare_words_indices
     # unmerged_rare_words_list = context_collector.unmerged_rare_words_list
     contexts = {
         "mode": "get_context_word_list",
@@ -898,7 +1001,7 @@ def compute_loss(
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,
-        "y_rare": y_rare,
+        # "y_rare": y_rare,
         # "gt_rare_words_indices": gt_rare_words_indices,
     }
 
