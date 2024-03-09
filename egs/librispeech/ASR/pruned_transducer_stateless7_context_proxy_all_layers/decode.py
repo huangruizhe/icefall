@@ -499,7 +499,7 @@ def get_parser():
     parser.add_argument(
         "--early-layers",
         type=str,
-        default="3",
+        default="",
         help="2,3,4",
     )
 

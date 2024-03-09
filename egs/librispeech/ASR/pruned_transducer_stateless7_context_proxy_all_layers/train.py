@@ -470,15 +470,15 @@ def get_parser():
     parser.add_argument(
         "--early-layers",
         type=str,
-        default="3",
-        help="2,3,4",
+        default="",
+        help="3",
     )
 
     parser.add_argument(
         "--ctc-layers",
         type=str,
-        default="3,5",
-        help="2,3,4",
+        default="",
+        help="3,5",
     )
     
     parser.add_argument(
@@ -901,7 +901,7 @@ def compute_loss(
     texts = batch["supervisions"]["text"]
 
     # Text perturbation
-    if params.proxy_prob is not None and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
+    if params.proxy_prob is not None and params.proxy_prob > 0 and is_training and not context_collector.is_predefined and context_collector.text_perturbator is not None:
         new_texts, new_rare_words = context_collector.text_perturbator.perturb_texts(texts, context_collector.common_words, prob=params.proxy_prob)
         old_texts = texts
         texts = new_texts
