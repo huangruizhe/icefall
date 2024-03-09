@@ -496,6 +496,13 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--early-layers",
+        type=str,
+        default="3",
+        help="2,3,4",
+    )
+
     add_model_arguments(parser)
 
     return parser

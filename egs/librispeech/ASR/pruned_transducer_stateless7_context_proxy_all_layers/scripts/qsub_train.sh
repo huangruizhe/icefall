@@ -182,3 +182,6 @@ fi
 #     output = md.proj_out(attn_output)
 #     print(torch.any(torch.isnan(output) | torch.isinf(output)))
 
+
+
+python pruned_transducer_stateless7_context_proxy_all_layers/train.py       --world-size 4       --use-fp16 true       --max-duration $max_duration       --exp-dir $exp_dir       --bpe-model "data/lang_bpe_500/bpe.model"       --prune-range 5       --full-libri true       --context-dir "data/fbai-speech/is21_deep_bias/"       --keep-ratio 1.0       --start-epoch 2       --num-epochs 30       --is-pretrained-context-encoder false       --is-reused-context-encoder false       --is-full-context $is_full_context       --n-distractors $n_distractors  --start-epoch 14 --num-epochs 40 --master-port 12357 --proxy-prob 0.2 --keep-ratio 0.8 --throwaway-prob 0.7 --n-distractors 100 --start-epoch 29 --num-epochs 40 --world-size 4 --max-duration 1800

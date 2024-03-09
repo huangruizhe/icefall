@@ -52,6 +52,7 @@ class Transducer(nn.Module):
         context_encoder: nn.Module, 
         encoder_biasing_adapter: nn.Module, 
         decoder_biasing_adapter: nn.Module,
+        i_ctc_layers = [],
     ):
         """
         Args:
@@ -95,7 +96,7 @@ class Transducer(nn.Module):
         self.params = None
 
         # Apply ctc loss on the layer output (biased)
-        self.use_ctc = False
+        self.use_ctc = False and len(i_ctc_layers) > 0
         if self.use_ctc:  
             i_dim3 = self.encoder.encoder_dims[3]
             # i_dim5 = self.encoder.encoder_dims[5]
@@ -112,10 +113,10 @@ class Transducer(nn.Module):
             # )
         
         # Apply ctc loss on the `encoder_biasing_out` term only
-        self.use_ctc2 = False
+        self.use_ctc2 = True and len(i_ctc_layers) > 0
         if self.use_ctc2:
-            # self.i_ctc2_layers = [3, 5]
-            self.i_ctc2_layers = [3]
+            self.i_ctc2_layers = i_ctc_layers
+            # self.i_ctc2_layers = [3]
             self.ctc2_outputs = [None] * (len(self.encoder.encoder_dims) + 1)
             for i in range(len(self.encoder.encoder_dims) + 1):
                 if i in self.i_ctc2_layers:
@@ -131,18 +132,20 @@ class Transducer(nn.Module):
             self.ctc2_outputs = nn.ModuleList(self.ctc2_outputs)
         
         # Apply ctc loss on the attention weights
-        self.use_ctc3 = False
+        self.use_ctc3 = False and len(i_ctc_layers) > 0
         if self.use_ctc3:
-            self.i_ctc3_layers = [3, 5]
+            # self.i_ctc3_layers = [3, 5]
+            self.i_ctc3_layers = i_ctc_layers
             
             self.priors_T = 0
             self.log_priors = None  # (D,)
             self.log_priors_sum = None  # (1, D)
             self.max_dim = 150
         
-        self.ce_loss = False
+        self.ce_loss = False and len(i_ctc_layers) > 0
         if self.ce_loss:
-            self.ce_layers = [3, 5]
+            # self.ce_layers = [3, 5]
+            self.ce_layers = i_ctc_layers
 
 
     def pad_probs(self, probs, dim, pad_value=0):

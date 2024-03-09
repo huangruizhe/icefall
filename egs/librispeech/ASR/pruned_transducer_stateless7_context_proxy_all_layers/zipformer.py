@@ -77,6 +77,7 @@ class Zipformer(EncoderInterface):
         cnn_module_kernels: Tuple[int] = (31, 31),
         pos_dim: int = 4,
         warmup_batches: float = 4000.0,
+        i_ctc_layers=[],
     ) -> None:
         super(Zipformer, self).__init__()
 
@@ -145,8 +146,8 @@ class Zipformer(EncoderInterface):
             encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor
         )
 
-        # self.biasing_layers = [3]
-        self.biasing_layers = []
+        self.biasing_layers = i_ctc_layers
+        # self.biasing_layers = []
         self.downsample_intermediate_output = [None] * len(self.encoder_dims)
         for i in range(len(self.downsample_intermediate_output)):
             if i in self.biasing_layers:

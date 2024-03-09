@@ -307,10 +307,10 @@ def main(args):
                     u_wer.errors[Code.insertion] += 1
 
     # Report results
-    print(f"WER: {wer.get_result_string()}")
-    print(f"U-WER: {u_wer.get_result_string()}")
-    print(f"B-WER: {b_wer.get_result_string()}")
-    print(f"{wer.get_wer():.2f}({u_wer.get_wer():.2f}/{b_wer.get_wer():.2f})")
+    logging.info(f"WER: {wer.get_result_string()}")
+    logging.info(f"U-WER: {u_wer.get_result_string()}")
+    logging.info(f"B-WER: {b_wer.get_result_string()}")
+    logging.info(f"{wer.get_wer():.2f}({u_wer.get_wer():.2f}/{b_wer.get_wer():.2f})")
 
 
 if __name__ ==  "__main__":

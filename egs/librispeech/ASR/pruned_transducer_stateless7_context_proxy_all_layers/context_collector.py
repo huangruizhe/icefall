@@ -46,6 +46,7 @@ class ContextCollector(torch.utils.data.Dataset):
         is_full_context: bool = False,
         backoff_id: int = None,
         confusionp_path: str = None,
+        enable_nn_perturb: bool = False,
     ):
         self.sp = sp
         self.bert_encoder = bert_encoder
@@ -156,7 +157,7 @@ class ContextCollector(torch.utils.data.Dataset):
 
         if self.confusionp_path is not None:
             # self.text_perturbator = TextPerturbator(self.sp, self.confusionp_path)
-            self.text_perturbator = TextPerturbator2()
+            self.text_perturbator = TextPerturbator2(enable_nn_perturb=enable_nn_perturb)
         else:
             self.text_perturbator = None
 
@@ -197,7 +198,10 @@ class ContextCollector(torch.utils.data.Dataset):
         pass
 
     def remove_common_words_from_texts(self, texts):
-        return [" ".join([word for word in text.split() if word not in self.common_words]) for text in texts]
+        if self.unmerged_rare_words_list is None:
+            return [" ".join([word for word in text.split() if word not in self.common_words]) for text in texts]
+        else:
+            return [" ".join([word for word in text.split() if word not in self.common_words and word in self.unmerged_rare_words_list[i]]) for i, text in enumerate(texts)]
 
     def _get_random_word_lists(self, batch):
         texts = batch["supervisions"]["text"]
@@ -327,7 +331,7 @@ class ContextCollector(torch.utils.data.Dataset):
         #     my_dict = {w: i for i, w in enumerate(rare_words_list[j])}
         #     gt_rare_words_indices.append([my_dict[w] for w in text.split() if w in my_dict])
         # self.gt_rare_words_indices = gt_rare_words_indices  # Don't forget to "add one" when using it in the biasing module
-        self.unmerged_rare_words_list = rare_words_list
+        self.unmerged_rare_words_list = [set(rwl) for rwl in rare_words_list]
 
         if self.all_words2embeddings is None:
             # Use SentencePiece to encode the words
@@ -548,7 +552,7 @@ class TextPerturbator:
 
 
 class TextPerturbator2:
-    def __init__(self):
+    def __init__(self, enable_nn_perturb=False):
         rules = """
 a aa
 aa ar
@@ -724,8 +728,11 @@ z zz
         self.rules_dict = {k: list(v) for k, v in rules_dict.items()}
         self.rules_regex = "|".join(sorted(map(re.escape,  self.rules_dict.keys()), key=len, reverse=True))
 
-        import nltk
-        self.pos_tagger = nltk.tag.PerceptronTagger()
+        if enable_nn_perturb:
+            import nltk
+            self.pos_tagger = nltk.tag.PerceptronTagger()
+        else:
+            self.pos_tagger = None
 
     def perturb_one_word0(self, s):
         s = f"_{s}_"
@@ -773,8 +780,10 @@ z zz
         # p = np.random.rand(len(texts)) < prob
 
         # TODO: <1> is this necessary?
-        # pos_tags = [self.pos_tagger.tag(text.lower().split()) for text in texts]
-        pos_tags = [[(w, "NN") for w in text.lower().split()] for text in texts]
+        if self.pos_tagger is not None:
+            pos_tags = [self.pos_tagger.tag(text.lower().split()) for text in texts]
+        else:
+            pos_tags = [[(w, "NN") for w in text.lower().split()] for text in texts]
 
         # all_rare_words = list()
         # for text in texts:

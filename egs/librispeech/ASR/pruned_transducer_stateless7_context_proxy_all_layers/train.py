@@ -460,6 +460,34 @@ def get_parser():
         help="",
     )
 
+    parser.add_argument(
+        "--ctc-weight",
+        type=float,
+        default=0,
+        help="",
+    )
+
+    parser.add_argument(
+        "--early-layers",
+        type=str,
+        default="3",
+        help="2,3,4",
+    )
+
+    parser.add_argument(
+        "--ctc-layers",
+        type=str,
+        default="3,5",
+        help="2,3,4",
+    )
+    
+    parser.add_argument(
+        "--enable-nn",
+        type=str2bool,
+        default=False,
+        help="",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -619,7 +647,7 @@ def get_contextual_model(params: AttributeDict, decoder=None) -> nn.Module:
     #     num_heads=4,
     # )
 
-    biasing_layers = [3]  # modify model.py and zipformer.py accordingly!
+    biasing_layers = [int(l) for l in params.early_layers.strip().split(",") if len(l) > 0]  # modify model.py and zipformer.py accordingly!
     encoder_biasing_adapters = []
     for i, qd in enumerate(params.encoder_dims.split(",")):
         if i in biasing_layers:
@@ -657,6 +685,7 @@ def get_transducer_model(params: AttributeDict) -> nn.Module:
     decoder = get_decoder_model(params)
     joiner = get_joiner_model(params)
     context_encoder, encoder_biasing_adapter, decoder_biasing_adapter = get_contextual_model(params, decoder=decoder)
+    ctc_layers = [int(l) for l in params.ctc_layers.strip().split(",") if len(l) > 0]
 
     model = Transducer(
         encoder=encoder,
@@ -669,6 +698,7 @@ def get_transducer_model(params: AttributeDict) -> nn.Module:
         context_encoder=context_encoder, 
         encoder_biasing_adapter=encoder_biasing_adapter, 
         decoder_biasing_adapter=decoder_biasing_adapter,
+        i_ctc_layers=ctc_layers,
     )
     return model
 
@@ -985,9 +1015,6 @@ def compute_loss(
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y).to(device)
 
-    # y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
-    # y_rare = k2.RaggedTensor(y_rare).to(device)
-
     word_list, word_lengths, num_words_per_utt = \
         context_collector.get_context_word_list(batch)
     word_list = word_list.to(device)
@@ -996,13 +1023,18 @@ def compute_loss(
     context_collector.temp_rare_words = None
     # gt_rare_words_indices = context_collector.gt_rare_words_indices
     # unmerged_rare_words_list = context_collector.unmerged_rare_words_list
+
+    y_rare = sp.encode(context_collector.remove_common_words_from_texts(texts), out_type=int)
+    y_rare = k2.RaggedTensor(y_rare).to(device)
+    context_collector.unmerged_rare_words_list = None
+
     contexts = {
         "mode": "get_context_word_list",
         # "mode": "get_context_word_list_shared" if is_training and context_collector.n_distractors > 0 else "get_context_word_list",
         "word_list": word_list, 
         "word_lengths": word_lengths, 
         "num_words_per_utt": num_words_per_utt,
-        # "y_rare": y_rare,
+        "y_rare": y_rare,
         # "gt_rare_words_indices": gt_rare_words_indices,
     }
 
@@ -1041,7 +1073,7 @@ def compute_loss(
             else 0.1 + 0.9 * (batch_idx_train / warm_step)
         )
 
-        loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss + 0.1* ctc_loss  # 0.07
+        loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss + params.ctc_weight * ctc_loss  # 0.07
 
     assert loss.requires_grad == is_training
 
@@ -1381,6 +1413,7 @@ def run(rank, world_size, args):
             keep_ratio=params.keep_ratio,
             is_full_context=params.is_full_context,
             confusionp_path="/exp/rhuang/meta/audio_ruizhe/ec21/proxy/confusionp_cut4.txt",
+            enable_nn_perturb=params.enable_nn,
         )
 
     logging.info("About to create model")
