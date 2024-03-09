@@ -503,6 +503,13 @@ def get_parser():
         help="2,3,4",
     )
 
+    parser.add_argument(
+        "--ctc-layers",
+        type=str,
+        default="",
+        help="2,3,4",
+    )
+
     add_model_arguments(parser)
 
     return parser
